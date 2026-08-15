@@ -1,98 +1,31 @@
 import "./style.css";
 
-type NavigationItem = {
-  icon: string;
-  label: string;
-};
-
-const navigation: NavigationItem[] = [
-  { icon: "▦", label: "Genel Bakış" },
-  { icon: "◴", label: "Ajanda" },
-  { icon: "◫", label: "Danışanlar" },
-  { icon: "⌁", label: "Seanslar" },
-  { icon: "▱", label: "Raporlar" },
+type Room = { title: string; host: string; listeners: string; tone: string; initials: string; topic: string };
+type Person = { name: string; handle: string; score: string; initials: string; tone: string };
+const rooms: Room[] = [
+  { title: "Geceye Bir Şarkı", host: "Mert & Ece", listeners: "1.2K", tone: "pink", initials: "ME", topic: "Müzik & sohbet" },
+  { title: "Kahve Molası", host: "Deniz Aksoy", listeners: "846", tone: "purple", initials: "DA", topic: "Gündelik" },
+  { title: "Bugün Nasılsın?", host: "Selin Y.", listeners: "623", tone: "cyan", initials: "SY", topic: "İyi hisset" },
+  { title: "Yeni Sesler", host: "SesOn keşif", listeners: "418", tone: "blue", initials: "SK", topic: "Keşfet" },
 ];
-
-const appointments = [
-  { initials: "AY", name: "Ayşe Yılmaz", time: "10:00", tone: "lavender" },
-  { initials: "BK", name: "Berke Kaya", time: "11:30", tone: "peach" },
-  { initials: "ZK", name: "Zeynep Koç", time: "14:00", tone: "blue" },
+const people: Person[] = [
+  { name: "Lara Deniz", handle: "@laradeniz", score: "24.8K", initials: "LD", tone: "pink" },
+  { name: "Mert Can", handle: "@mertcan", score: "21.3K", initials: "MC", tone: "gold" },
+  { name: "Ece Su", handle: "@ecesu", score: "18.7K", initials: "ES", tone: "violet" },
 ];
-
-const navMarkup = navigation
-  .map(
-    ({ icon, label }, index) => `
-      <button class="nav-item ${index === 0 ? "is-active" : ""}" type="button" data-nav="${label}">
-        <span class="nav-icon" aria-hidden="true">${icon}</span>
-        <span>${label}</span>
-      </button>`,
-  )
-  .join("");
-
-const appointmentMarkup = appointments
-  .map(
-    ({ initials, name, time, tone }) => `
-      <li class="appointment">
-        <span class="avatar avatar-${tone}">${initials}</span>
-        <span class="appointment-person"><strong>${name}</strong><small>Bireysel görüşme</small></span>
-        <time>${time}</time>
-        <button type="button" class="more-button" aria-label="${name} için seçenekler">•••</button>
-      </li>`,
-  )
-  .join("");
+const roomMarkup = rooms.map((r) => `<article class="room-card"><div class="room-image ${r.tone}"><span class="room-orb">${r.initials}</span><span class="live"><i></i> CANLI</span><span class="listeners">◉ ${r.listeners}</span></div><div class="room-info"><span>${r.topic}</span><h3>${r.title}</h3><p><b>${r.host}</b> · konuşuyor</p></div></article>`).join("");
+const peopleMarkup = people.map((p, i) => `<li><span class="rank">0${i + 1}</span><span class="person-avatar ${p.tone}">${p.initials}</span><span class="person"><b>${p.name}</b><small>${p.handle}</small></span><strong>${p.score}</strong></li>`).join("");
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
-  <div class="dashboard-shell">
-    <aside class="sidebar">
-      <a class="brand" href="#" aria-label="SESON ana sayfa"><span class="brand-mark">S</span><span>SESON</span></a>
-      <nav class="main-nav" aria-label="Ana menü">${navMarkup}</nav>
-      <div class="sidebar-bottom">
-        <button class="nav-item" type="button"><span class="nav-icon">?</span><span>Yardım Merkezi</span></button>
-        <button class="profile-card" type="button">
-          <span class="avatar avatar-profile">ED</span><span><strong>Elif Demir</strong><small>Psikolog</small></span><span aria-hidden="true">⌄</span>
-        </button>
-      </div>
-    </aside>
+<div class="app"><header class="navbar"><a class="logo" href="#top"><span class="logo-mark">S</span><span>ses<span>on</span></span></a><nav><a class="active" href="#top">Keşfet</a><a href="#rooms">Canlı odalar</a><a href="#popular">Popüler</a><a href="#rankings">Sıralama</a><a href="#events">Etkinlikler</a></nav><div class="nav-right"><span class="live-status"><i></i> 2.4K kişi online</span><button class="login" data-open-auth>Giriş yap</button><button class="join" data-open-auth>Kayıt ol <span>↗</span></button><button class="hamburger">☰</button></div></header>
+<main id="top"><section class="hero"><div class="hero-copy"><span class="eyebrow"><i></i> SESİNİ DUYUR</span><h1>Sesin burada<br /><span>hayat bulur.</span></h1><p>Dinle. Konuş. Bağlan.<br />SesOn'da herkesin söyleyecek bir şeyi var.</p><div class="hero-buttons"><button class="join big" data-open-auth>Hemen keşfet <span>↗</span></button><a href="#rooms"><span class="play">▶</span> Nasıl çalışır?</a></div><div class="mini-proof"><div><span>AY</span><span>MK</span><span>ED</span><span>+10K</span></div><small>10.000+ kişi sesini paylaşıyor</small></div></div><div class="hero-center"><div class="wave wave-a"></div><div class="wave wave-b"></div><div class="wave wave-c"></div><div class="mic-halo"><div class="mic"><span class="mic-top"></span><span class="mic-stem"></span><span class="mic-foot"></span></div></div><span class="music-note note-a">♪</span><span class="music-note note-b">♫</span><span class="signal signal-a"></span><span class="signal signal-b"></span><div class="now-playing"><span class="equalizer"><i></i><i></i><i></i><i></i><i></i></span><span><small>ŞİMDİ DİNLENİYOR</small><b>Sesinle bağlan</b></span><strong>03:42</strong></div></div><aside class="auth-card"><div class="auth-top"><span class="auth-dot"></span><small>SESON'A KATIL</small><span class="auth-lock">⌁</span></div><h2>Kendi sesini<br /><em>bul.</em></h2><p>Binlerce sohbete katıl,<br />hikâyeni paylaş.</p><div class="auth-tabs"><button class="selected">Giriş yap</button><button>Kayıt ol</button></div><form class="inline-form"><label>E-posta adresin</label><input type="email" placeholder="ornek@email.com" required /><button class="join" type="submit">Devam et <span>→</span></button></form><small class="terms">Devam ederek Kullanım Koşulları'nı kabul edersin.</small><div class="social-login"><span>veya</span><button type="button">G <b>Google ile devam et</b></button></div></aside></section>
+<section class="metrics"><div><small>AKTİF KULLANICI</small><b>10K<span>+</span></b></div><div><small>CANLI ODA</small><b>2.4K</b></div><div><small>PAYLAŞILAN DAKİKA</small><b>365K</b></div><div><small>TOPLULUK PUANI</small><b>4.9 <span class="stars">★★★★★</span></b></div></section>
+<section class="section" id="rooms"><div class="section-head"><div><span class="eyebrow">ŞİMDİ CANLI</span><h2>Bir odaya <em>katıl.</em></h2></div><a href="#rooms">Tüm odaları gör <span>→</span></a></div><div class="rooms-grid">${roomMarkup}</div></section>
+<section class="section dark-section" id="popular"><div class="section-head"><div><span class="eyebrow">TOPLULUKTAN</span><h2>Popüler <em>içerikler.</em></h2></div><div class="filter-tabs"><button class="active">Bugün</button><button>Bu hafta</button><button>Yeni</button></div></div><div class="content-columns"><article class="featured-content"><div class="content-art"><span class="content-ring"></span><span class="content-avatar">İD</span><span class="content-live">● 12.4K dinliyor</span></div><div><span class="eyebrow">SESON ORIGINALS</span><h3>Birlikte daha güzel</h3><p>İrem Derici ile müzik, hayat ve bize iyi gelen şeyler üzerine.</p><button class="text-link">Dinlemeye başla <span>→</span></button></div></article><div class="topic-list"><article><span class="topic-icon">◉</span><div><b>Gece Sohbetleri</b><small>4.2K dinliyor · 18 dk</small></div><span>▶</span></article><article><span class="topic-icon purple">✦</span><div><b>Yeni Başlangıçlar</b><small>2.8K dinliyor · 32 dk</small></div><span>▶</span></article><article><span class="topic-icon cyan">♫</span><div><b>Şehrin Sesleri</b><small>1.9K dinliyor · 24 dk</small></div><span>▶</span></article></div></div></section>
+<section class="section split-section" id="rankings"><div class="ranking-box"><div class="section-head compact"><div><span class="eyebrow">HAFTANIN SESLERİ</span><h2>Sıralama</h2></div><button class="round">↗</button></div><ol>${peopleMarkup}</ol></div><div class="quote-box"><span class="quote">“</span><h3>Sesini paylaş.<br /><em>Dünyaya bağlan.</em></h3><p>Burada her sesin bir hikâyesi, her hikâyenin bir dinleyicisi var.</p><div class="quote-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div></section>
+<section class="events" id="events"><div><span class="eyebrow">TAKVİMİNDE YER AÇ</span><h2>Bir sonraki<br /><em>buluşma burada.</em></h2><p>Canlı yayınlar, özel konuklar ve topluluğun en sevdiği etkinlikler.</p><button class="outline">Tüm etkinlikler <span>→</span></button></div><div class="event-list"><article><time>18 <small>AĞU</small></time><span>ÖZEL YAYIN</span><h3>Sesin Hikayesi</h3><p>Konuk: İrem Derici · 21:00</p></article><article><time>24 <small>AĞU</small></time><span>TOPLULUK</span><h3>Gece Sohbetleri</h3><p>Herkes davetli · 22:30</p></article></div></section></main><footer><a class="logo" href="#top"><span class="logo-mark">S</span><span>ses<span>on</span></span></a><p>Sesini paylaş. Dünyaya bağlan.</p><div><a href="#rooms">Keşfet</a><a href="#popular">Popüler</a><a href="#events">Etkinlikler</a><a href="#">Yardım</a></div><small>© 2024 SesOn</small></footer></div>`;
 
-    <main class="main-content">
-      <header class="topbar">
-        <button class="mobile-menu" type="button" aria-label="Menüyü aç">☰</button>
-        <div class="welcome"><p>14 Ağustos, Çarşamba</p><h1>Günaydın, Elif <span>✦</span></h1></div>
-        <div class="top-actions"><button class="icon-button" type="button" aria-label="Bildirimler">♧<span class="notification-dot"></span></button><button class="add-button" type="button">＋ Yeni seans</button></div>
-      </header>
-
-      <section class="overview-grid" aria-label="Günlük özet">
-        <article class="metric-card primary-metric"><div><span class="eyebrow">BUGÜNKÜ SEANSLAR</span><strong>08</strong><p>Toplam 10 seansın var</p></div><div class="metric-icon">◷</div></article>
-        <article class="metric-card"><span class="eyebrow">AKTİF DANIŞAN</span><strong>42</strong><p><b>+4</b> bu ay eklendi</p></article>
-        <article class="metric-card"><span class="eyebrow">BU AYKİ GELİR</span><strong>₺28.400</strong><p><b>+12,5%</b> geçen aya göre</p></article>
-      </section>
-
-      <section class="content-grid">
-        <article class="panel schedule-panel">
-          <div class="panel-heading"><div><span class="eyebrow">BUGÜNÜN AJANDASI</span><h2>Yaklaşan seanslar</h2></div><button class="text-button" type="button">Tüm ajanda <span>→</span></button></div>
-          <div class="agenda">
-            <div class="time-rail"><span>09:00</span><span>10:00</span><span>11:00</span><span>12:00</span><span>13:00</span></div>
-            <div class="agenda-events"><div class="session session-a"><span>09:00 — 09:50</span><strong>Melis Akın</strong><small>Online seans</small></div><div class="session session-b"><span>10:00 — 10:50</span><strong>Ayşe Yılmaz</strong><small>Yüz yüze seans</small></div><div class="session session-c"><span>11:30 — 12:20</span><strong>Berke Kaya</strong><small>Online seans</small></div></div>
-          </div>
-        </article>
-
-        <article class="panel appointments-panel">
-          <div class="panel-heading"><div><span class="eyebrow">YAKLAŞAN</span><h2>Bugünkü randevular</h2></div><button class="icon-button plain" type="button" aria-label="Randevu takvimini aç">⌘</button></div>
-          <ul class="appointments">${appointmentMarkup}</ul>
-          <button class="view-all" type="button">Tüm randevuları görüntüle</button>
-        </article>
-      </section>
-
-      <section class="panel insight-panel"><div><span class="eyebrow">HAFTALIK ÖZET</span><h2>Seans ritmin dengeli ilerliyor</h2><p>Geçen haftaya göre %18 daha fazla danışan görüşmesi tamamladın.</p></div><div class="bar-chart" aria-label="Haftalık seans grafiği"><span style="--height:48%"></span><span style="--height:68%"></span><span style="--height:42%"></span><span style="--height:82%"></span><span style="--height:62%"></span><span style="--height:92%"></span><span style="--height:56%"></span></div></section>
-    </main>
-  </div>
-`;
-
-document.querySelectorAll<HTMLButtonElement>("[data-nav]").forEach((item) => {
-  item.addEventListener("click", () => {
-    document
-      .querySelectorAll("[data-nav]")
-      .forEach((button) => button.classList.remove("is-active"));
-    item.classList.add("is-active");
-  });
-});
+const form = document.querySelector<HTMLFormElement>(".inline-form")!;
+document.querySelectorAll<HTMLButtonElement>("[data-open-auth]").forEach((button) => button.addEventListener("click", () => document.querySelector<HTMLInputElement>(".inline-form input")?.focus()));
+form.addEventListener("submit", (event) => event.preventDefault());
+document.querySelector<HTMLButtonElement>(".hamburger")?.addEventListener("click", () => document.querySelector("nav")?.classList.toggle("open"));
