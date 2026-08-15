@@ -1,0 +1,26 @@
+{
+  "name": "ses10",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SES10 service foundation",
+  "type": "module",
+  "engines": {
+    "node": ">=18.19.0",
+    "npm": ">=9.2.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.3"
+  }
+}
