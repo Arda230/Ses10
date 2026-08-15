@@ -1,0 +1,16 @@
+:root {
+  --son-bg: #070a16;
+  --son-surface: #0d142b;
+  --son-surface-raised: #101936;
+  --son-border: #29375d;
+  --son-border-strong: #3c4d80;
+  --son-cyan: #28daf8;
+  --son-cyan-bright: #31e5ff;
+  --son-magenta: #d66aff;
+  --son-text: #e8edff;
+  --son-muted: #8190b6;
+  --son-radius-sm: 6px;
+  --son-radius-md: 8px;
+  --son-glow-cyan: 0 0 22px #0fcde455;
+  --son-glow-magenta: 0 0 22px #d66aff55;
+}
