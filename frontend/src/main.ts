@@ -1,10 +1,15 @@
 import "./style.css";
 import "./room.css";
+import "./premium-room.css";
+import { premiumRoomView } from "./views/premiumRoomView";
 import { bindLiveKitRoom } from "./livekitRoom";
 import { roomCard, rankingRow } from "./components/markup";
 import { people, rooms } from "./data/fixtures";
 import { mockConversations } from "./state/mockState";
-import { adminView, aiView, authView, messagesView, profileView, roomView } from "./views/routeViews";
+import { adminView, aiView, authView, messagesView, profileView } from "./views/routeViews";
+document.body.insertAdjacentHTML("afterbegin", `<div class="premium-splash" data-splash><div class="splash-core"><span class="splash-ring"></span><span class="splash-wave left"><i></i><i></i><i></i></span><strong class="splash-mark">Ses<em>10</em></strong><span class="splash-wave right"><i></i><i></i><i></i></span><small>SESİNLE BAĞLAN</small></div></div>`);
+window.setTimeout(() => document.querySelector("[data-splash]")?.classList.add("is-hidden"), 1050);
+window.setTimeout(() => document.querySelector("[data-splash]")?.remove(), 1750);
 const roomMarkup = rooms.map(roomCard).join("");
 const peopleMarkup = people.map(rankingRow).join("");
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
@@ -164,7 +169,7 @@ function bindRoomInteractions(): void {
 function renderRoute(): void {
   const route = routeFromLocation();
   if (route === "auth") { app.innerHTML = authView(); bindAuthInteractions(); return; }
-  if (route === "room") { app.innerHTML = roomView(); bindRoomInteractions(); return; }
+  if (route === "room") { app.innerHTML = premiumRoomView(); bindRoomInteractions(); return; }
   if (route === "profile") { app.innerHTML = profileView(); bindGenericInteractions(); return; }
   if (route === "messages") { app.innerHTML = messagesView(); bindGenericInteractions(); return; }
   if (route === "nova") { app.innerHTML = aiView("nova"); bindGenericInteractions(); return; }

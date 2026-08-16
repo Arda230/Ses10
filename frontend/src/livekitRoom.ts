@@ -63,6 +63,20 @@ export function bindLiveKitRoom(): void {
         : `<span>${seat.locked ? "⌁" : "+"}</span><b>Mic ${seat.id}</b><small>${seat.locked ? "kilitli" : "boş"}</small>`;
       return `<button class="${classes}" type="button" data-seat-id="${seat.id}" aria-label="Mic ${seat.id}">${content}</button>`;
     }).join("");
+    const memberList = document.querySelector<HTMLElement>("[data-member-list]");
+    const occupied = state.seats.flatMap((seat) => seat.occupant ? [seat.occupant] : []);
+    const visibleMembers = occupied.some((item) => item.identity === state?.self.identity) ? occupied : [...occupied, { identity: state.self.identity, name: state.self.name, muted: true, forceMuted: false }];
+    if (memberList) memberList.innerHTML = visibleMembers.map((member) => {
+      const ownRole = member.identity === state?.self.identity ? state.self.role : "listener";
+      const role = ownRole === "host" ? `<em class="role-host">♛ HOST</em>` : ownRole === "moderator" ? `<em class="role-mod">✦ MOD</em>` : `<em>${member.muted ? "⌁" : "♫"}</em>`;
+      return `<article><span class="member-avatar ${ownRole === "host" ? "cyan" : "violet"}">${initials(member.name)}</span><span><b>${escapeHtml(member.name)}</b><small>${member.muted ? "Dinliyor" : "Konuşmacı"}</small></span>${role}</article>`;
+    }).join("");
+    const memberTotal = document.querySelector<HTMLElement>("[data-member-total]");
+    const speakerTotal = document.querySelector<HTMLElement>("[data-speaker-total]");
+    if (memberTotal) memberTotal.textContent = String(state.participants);
+    if (speakerTotal) speakerTotal.textContent = String(occupied.length);
+    const participantCount = document.querySelector<HTMLElement>("[data-participant-count]");
+    if (participantCount) participantCount.textContent = String(state.participants);
     if (hostControls) hostControls.hidden = state.self.role !== "host";
     const ownSeat = state.seats.find((seat) => seat.occupant?.identity === state?.self.identity);
     if (mic) {
@@ -160,6 +174,10 @@ export function bindLiveKitRoom(): void {
     finally { render(); }
   });
 
+  document.querySelector<HTMLButtonElement>("[data-leave-seat]")?.addEventListener("click", () => {
+    if (!state?.self.seatId) { show("Şu anda bir mic koltuğunda değilsin."); return; }
+    void leaveSeat().catch((error) => show(error instanceof Error ? error.message : "Mic’ten inilemedi.", true));
+  });
   leave?.addEventListener("click", () => room?.disconnect());
 }
 
