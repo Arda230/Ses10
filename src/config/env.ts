@@ -6,6 +6,8 @@ export interface AppConfig {
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
   livekit: { url: string; apiKey: string; apiSecret: string };
+  databaseUrl: string;
+  auth: { cookieName: string; cookieSecure: boolean; sessionTtlSeconds: number };
 }
 
 const environments: readonly Environment[] = [
@@ -25,6 +27,12 @@ function readPort(value: string | undefined): number {
   return port;
 }
 
+function readPositiveInteger(name: string, value: string | undefined, fallback: number): number {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(name + " must be a positive integer.");
+  return parsed;
+}
+
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const environment = source.NODE_ENV ?? "development";
   const logLevel = source.LOG_LEVEL ?? "info";
@@ -40,6 +48,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const livekitUrl = source.LIVEKIT_URL?.trim();
   const livekitApiKey = source.LIVEKIT_API_KEY?.trim();
   const livekitApiSecret = source.LIVEKIT_API_SECRET?.trim();
+  const databaseUrl = source.DATABASE_URL?.trim();
   if (!livekitUrl || !livekitApiKey || !livekitApiSecret) {
     throw new Error("LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set.");
   }
@@ -48,6 +57,8 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   } catch {
     throw new Error("LIVEKIT_URL must be a valid URL.");
   }
+  if (!databaseUrl) throw new Error("DATABASE_URL must be set.");
+  try { new URL(databaseUrl); } catch { throw new Error("DATABASE_URL must be a valid URL."); }
 
   return {
     environment: environment as Environment,
@@ -55,5 +66,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     port: readPort(source.PORT),
     logLevel: logLevel as AppConfig["logLevel"],
     livekit: { url: livekitUrl, apiKey: livekitApiKey, apiSecret: livekitApiSecret },
+    databaseUrl,
+    auth: {
+      cookieName: source.SESSION_COOKIE_NAME?.trim() || "ses10_session",
+      cookieSecure: environment === "production",
+      sessionTtlSeconds: readPositiveInteger("SESSION_TTL_SECONDS", source.SESSION_TTL_SECONDS, 604_800),
+    },
   };
 }

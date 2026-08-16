@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AccessToken, RoomServiceClient, TrackSource } from "livekit-server-sdk";
 
+import type { PublicUser } from "../application/auth/authTypes.js";
 import { RoomStateStore } from "../rooms/roomState.js";
 
 interface LiveKitConfig { url: string; apiKey: string; apiSecret: string }
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const IDENTITY_PATTERN = /^[A-Za-z0-9_.@-]{1,64}$/;
 const rooms = new RoomStateStore();
 
 function json(response: ServerResponse, status: number, payload: object) {
@@ -39,22 +39,24 @@ function errorStatus(error: unknown) {
   return 400;
 }
 
-export function createRoomApi(livekit: LiveKitConfig | undefined) {
+export function createRoomApi(
+  livekit: LiveKitConfig | undefined,
+  authenticate: ((request: IncomingMessage) => Promise<PublicUser | undefined>) | undefined,
+) {
   const service = livekit ? new RoomServiceClient(livekit.url, livekit.apiKey, livekit.apiSecret) : undefined;
 
   return async (request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> => {
     if (request.method === "POST" && path === "/api/livekit/token") {
       if (!livekit) { json(response, 503, { error: "Ses odası servisi yapılandırılmamış." }); return true; }
       try {
+        const user = await authenticate?.(request);
+        if (!user) { json(response, 401, { error: "UNAUTHORIZED" }); return true; }
         const input = await body(request);
         const roomName = input.roomName;
-        const identity = input.identity;
-        const name = input.name;
         if (typeof roomName !== "string" || !ROOM_PATTERN.test(roomName)) throw new Error("INVALID_ROOM");
-        if (typeof identity !== "string" || !IDENTITY_PATTERN.test(identity)) throw new Error("INVALID_IDENTITY");
-        if (typeof name !== "string" || name.trim().length < 1 || name.trim().length > 40) throw new Error("INVALID_NAME");
-        const participant = rooms.join(roomName, identity, name.trim());
-        const token = new AccessToken(livekit.apiKey, livekit.apiSecret, { identity, name: name.trim(), ttl: "10m" });
+        const identity = "user_" + user.id.replaceAll("-", "");
+        const participant = rooms.join(roomName, identity, user.username);
+        const token = new AccessToken(livekit.apiKey, livekit.apiSecret, { identity, name: user.username, ttl: "10m" });
         token.addGrant({ roomJoin: true, room: roomName, canPublish: false, canSubscribe: true, canPublishData: false });
         response.setHeader("set-cookie", `ses10_room_session=${participant.sessionId}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=3600`);
         json(response, 200, { token: await token.toJwt(), serverUrl: livekit.url, state: rooms.snapshot(roomName, identity) });
@@ -68,8 +70,11 @@ export function createRoomApi(livekit: LiveKitConfig | undefined) {
     if (!match) return false;
     const roomName = match[1]!;
     const action = match[2] ?? "";
+    const user = await authenticate?.(request);
+    if (!user) { json(response, 401, { error: "UNAUTHORIZED" }); return true; }
+    const authenticatedIdentity = "user_" + user.id.replaceAll("-", "");
     const participant = rooms.authenticate(session(request), roomName);
-    if (!participant) { json(response, 401, { error: "UNAUTHORIZED" }); return true; }
+    if (!participant || participant.identity !== authenticatedIdentity) { json(response, 401, { error: "UNAUTHORIZED" }); return true; }
 
     if (request.method === "GET" && action === "events") {
       response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });

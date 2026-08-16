@@ -129,10 +129,7 @@ export function bindLiveKitRoom(): void {
     join.disabled = true;
     show("Ses odasına listener olarak bağlanılıyor…");
     try {
-      const identity = sessionStorage.getItem("seson-livekit-identity") ?? "guest-" + crypto.randomUUID();
-      sessionStorage.setItem("seson-livekit-identity", identity);
-      const name = sessionStorage.getItem("seson-display-name") ?? `Misafir ${identity.slice(-4)}`;
-      const token = await requestJson<TokenResponse>("/api/livekit/token", "POST", { roomName: ROOM_NAME, identity, name });
+      const token = await requestJson<TokenResponse>("/api/livekit/token", "POST", { roomName: ROOM_NAME });
       state = token.state;
       room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true } });
       room.on(RoomEvent.TrackSubscribed, (track) => { if (track.kind === Track.Kind.Audio && audio) audio.appendChild(track.attach()); });

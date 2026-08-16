@@ -15,16 +15,23 @@
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
+    "@types/pg": "^8.21.0",
+    "drizzle-kit": "^0.31.10",
     "prettier": "^3.4.2",
     "tsx": "^4.23.12",
     "typescript": "^5.7.3"
   },
   "dependencies": {
+    "argon2": "^0.45.1",
     "dotenv": "^17.4.2",
-    "livekit-server-sdk": "^2.17.0"
+    "drizzle-orm": "^0.45.2",
+    "livekit-server-sdk": "^2.17.0",
+    "pg": "^8.23.0"
   }
 }

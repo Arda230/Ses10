@@ -1,10 +1,13 @@
 import { createServer, type Server } from "node:http";
+import type { PublicUser } from "../application/auth/authTypes.js";
 import type { Logger } from "../shared/logger.js";
 import { createRoomApi } from "./roomApi.js";
 
 interface HttpServerOptions {
   logger: Logger;
   livekit?: { url: string; apiKey: string; apiSecret: string };
+  authApi?: (request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse, path: string) => Promise<boolean>;
+  authenticate?: (request: import("node:http").IncomingMessage) => Promise<PublicUser | undefined>;
 }
 
 const MAX_BODY_BYTES = 4_096;
@@ -35,10 +38,11 @@ async function readJsonBody(request: import("node:http").IncomingMessage): Promi
   catch { throw new Error("INVALID_JSON"); }
 }
 
-export function createHttpServer({ logger, livekit }: HttpServerOptions): Server {
-  const roomApi = createRoomApi(livekit);
+export function createHttpServer({ logger, livekit, authApi, authenticate }: HttpServerOptions): Server {
+  const roomApi = createRoomApi(livekit, authenticate);
   return createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (authApi && await authApi(request, response, path)) return;
     if (await roomApi(request, response, path)) return;
 
     if (request.method === "GET" && path === "/health") {
