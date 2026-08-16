@@ -1,7 +1,6 @@
 import { createServer, type Server } from "node:http";
-import { AccessToken, TrackSource } from "livekit-server-sdk";
-
 import type { Logger } from "../shared/logger.js";
+import { createRoomApi } from "./roomApi.js";
 
 interface HttpServerOptions {
   logger: Logger;
@@ -37,8 +36,10 @@ async function readJsonBody(request: import("node:http").IncomingMessage): Promi
 }
 
 export function createHttpServer({ logger, livekit }: HttpServerOptions): Server {
+  const roomApi = createRoomApi(livekit);
   return createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (await roomApi(request, response, path)) return;
 
     if (request.method === "GET" && path === "/health") {
       respondJson(response, 200, { status: "ok" });
@@ -47,25 +48,6 @@ export function createHttpServer({ logger, livekit }: HttpServerOptions): Server
 
     if (request.method === "GET" && path === "/ready") {
       respondJson(response, 200, { status: "ready" });
-      return;
-    }
-
-    if (request.method === "POST" && path === "/api/livekit/token") {
-      if (!livekit) { respondJson(response, 503, { error: "Ses odası servisi yapılandırılmamış." }); return; }
-      if (!request.headers["content-type"]?.toLowerCase().startsWith("application/json")) { respondJson(response, 415, { error: "İstek JSON formatında olmalı." }); return; }
-      try {
-        const body = await readJsonBody(request);
-        const roomName = typeof body === "object" && body !== null && "roomName" in body ? (body as { roomName?: unknown }).roomName : undefined;
-        const identity = typeof body === "object" && body !== null && "identity" in body ? (body as { identity?: unknown }).identity : undefined;
-        if (typeof roomName !== "string" || !ROOM_PATTERN.test(roomName)) { respondJson(response, 400, { error: "Geçerli bir oda adı gerekli." }); return; }
-        if (typeof identity !== "string" || !IDENTITY_PATTERN.test(identity)) { respondJson(response, 400, { error: "Geçerli bir kullanıcı kimliği gerekli." }); return; }
-        const accessToken = new AccessToken(livekit.apiKey, livekit.apiSecret, { identity, ttl: "10m" });
-        accessToken.addGrant({ roomJoin: true, room: roomName, canPublish: true, canPublishSources: [TrackSource.MICROPHONE], canSubscribe: true, canPublishData: false });
-        respondJson(response, 200, { token: await accessToken.toJwt(), serverUrl: livekit.url });
-      } catch (error) {
-        const tooLarge = error instanceof Error && error.message === "PAYLOAD_TOO_LARGE";
-        respondJson(response, tooLarge ? 413 : 400, { error: tooLarge ? "İstek gövdesi çok büyük." : "Geçersiz istek gövdesi." });
-      }
       return;
     }
 
