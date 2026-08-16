@@ -1,4 +1,5 @@
 import "./style.css";
+import { Room, RoomEvent, Track } from "livekit-client";
 import { roomCard, rankingRow } from "./components/markup";
 import { people, rooms } from "./data/fixtures";
 import { mockConversations } from "./state/mockState";
@@ -154,16 +155,44 @@ function bindGenericInteractions(): void {
   document.querySelectorAll<HTMLElement>(".admin-nav-item").forEach((item) => item.addEventListener("click", () => { document.querySelectorAll(".admin-nav-item").forEach((entry) => entry.classList.remove("active")); item.classList.add("active"); }));
 }
 
+let activeRoom: Room | undefined;
+
 function bindRoomInteractions(): void {
-  document.querySelectorAll<HTMLButtonElement>(".seat").forEach((seat) => seat.addEventListener("click", () => {
-    if (seat.classList.contains("empty")) { seat.classList.remove("empty"); seat.classList.add("occupied"); seat.innerHTML = `ME<small>sen</small>`; seat.setAttribute("aria-label", "Benim konuşmacı koltuğum"); }
-    else if (seat.classList.contains("is-speaking")) seat.classList.remove("is-speaking");
-    else seat.classList.add("is-speaking");
-  }));
-  document.querySelector<HTMLButtonElement>("[data-mic-toggle]")?.addEventListener("click", (event) => { const button = event.currentTarget as HTMLButtonElement; const muted = button.getAttribute("aria-pressed") === "true"; button.setAttribute("aria-pressed", String(!muted)); button.textContent = muted ? "♫" : "⌁"; button.classList.toggle("is-muted", !muted); });
-  document.querySelector<HTMLButtonElement>("[data-raise-hand]")?.addEventListener("click", (event) => { const button = event.currentTarget as HTMLButtonElement; button.classList.toggle("is-raised"); button.textContent = button.classList.contains("is-raised") ? "✓ El kaldırıldı" : "✋ El kaldır"; });
-  document.querySelector<HTMLButtonElement>(".leave-button")?.addEventListener("click", () => { navigate("/"); });
-  document.querySelector<HTMLButtonElement>(".hamburger")?.addEventListener("click", () => document.querySelector("nav")?.classList.toggle("open"));
+  const joinButton = document.querySelector<HTMLButtonElement>("[data-room-join]");
+  const micButton = document.querySelector<HTMLButtonElement>("[data-mic-toggle]");
+  const leaveButton = document.querySelector<HTMLButtonElement>(".leave-button");
+  const status = document.querySelector<HTMLElement>("[data-room-status]");
+  const audioContainer = document.querySelector<HTMLElement>("[data-remote-audio]");
+  const setStatus = (message: string, isError = false) => { if (status) { status.textContent = message; status.classList.toggle("is-error", isError); } };
+  joinButton?.addEventListener("click", async () => {
+    joinButton.disabled = true; setStatus("Ses odasına bağlanılıyor…");
+    try {
+      const identity = sessionStorage.getItem("seson-livekit-identity") ?? "guest-" + crypto.randomUUID();
+      sessionStorage.setItem("seson-livekit-identity", identity);
+      const response = await fetch("/api/livekit/token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomName: "geceye-bir-sarki", identity }) });
+      const payload = await response.json() as { token?: string; serverUrl?: string; error?: string };
+      if (!response.ok || !payload.token || !payload.serverUrl) throw new Error(payload.error ?? "Katılım tokenı alınamadı.");
+      const room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true } });
+      room.on(RoomEvent.TrackSubscribed, (track) => { if (track.kind === Track.Kind.Audio && audioContainer) audioContainer.appendChild(track.attach()); });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach((element) => element.remove()));
+      room.on(RoomEvent.Disconnected, () => { activeRoom = undefined; if (micButton) micButton.disabled = true; if (leaveButton) leaveButton.disabled = true; if (joinButton) joinButton.disabled = false; setStatus("Ses odasından ayrıldın."); });
+      await room.connect(payload.serverUrl, payload.token, { autoSubscribe: true });
+      await room.startAudio(); activeRoom = room;
+      if (micButton) micButton.disabled = false; if (leaveButton) leaveButton.disabled = false;
+      setStatus("Ses odasına bağlandın. Mikrofonun kapalı.");
+    } catch (error) { joinButton.disabled = false; setStatus(error instanceof Error ? error.message : "Ses odasına bağlanılamadı.", true); }
+  });
+  micButton?.addEventListener("click", async () => {
+    if (!activeRoom) return; micButton.disabled = true;
+    try {
+      const enabled = !activeRoom.localParticipant.isMicrophoneEnabled;
+      await activeRoom.localParticipant.setMicrophoneEnabled(enabled);
+      micButton.setAttribute("aria-pressed", String(enabled)); micButton.textContent = enabled ? "🎙" : "♫";
+      micButton.classList.toggle("is-muted", !enabled); setStatus(enabled ? "Mikrofonun açık." : "Mikrofonun kapalı.");
+    } catch { setStatus("Mikrofon erişimi sağlanamadı. Tarayıcı iznini kontrol et.", true); } finally { micButton.disabled = false; }
+  });
+  leaveButton?.addEventListener("click", () => activeRoom?.disconnect());
+  document.querySelector<HTMLButtonElement>("[data-raise-hand]")?.addEventListener("click", (event) => (event.currentTarget as HTMLButtonElement).classList.toggle("is-raised"));
 }
 
 function renderRoute(): void {

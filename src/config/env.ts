@@ -5,6 +5,7 @@ export interface AppConfig {
   host: string;
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
+  livekit: { url: string; apiKey: string; apiSecret: string };
 }
 
 const environments: readonly Environment[] = [
@@ -36,10 +37,23 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("LOG_LEVEL must be debug, info, warn, or error.");
   }
 
+  const livekitUrl = source.LIVEKIT_URL?.trim();
+  const livekitApiKey = source.LIVEKIT_API_KEY?.trim();
+  const livekitApiSecret = source.LIVEKIT_API_SECRET?.trim();
+  if (!livekitUrl || !livekitApiKey || !livekitApiSecret) {
+    throw new Error("LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set.");
+  }
+  try {
+    new URL(livekitUrl);
+  } catch {
+    throw new Error("LIVEKIT_URL must be a valid URL.");
+  }
+
   return {
     environment: environment as Environment,
     host: source.HOST ?? "127.0.0.1",
     port: readPort(source.PORT),
     logLevel: logLevel as AppConfig["logLevel"],
+    livekit: { url: livekitUrl, apiKey: livekitApiKey, apiSecret: livekitApiSecret },
   };
 }
