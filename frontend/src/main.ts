@@ -3,14 +3,14 @@ import "./room.css";
 import "./premium-room.css";
 import { premiumRoomView } from "./views/premiumRoomView";
 import { bindLiveKitRoom } from "./livekitRoom";
-import { roomCard, rankingRow } from "./components/markup";
-import { people, rooms } from "./data/fixtures";
-import { mockConversations } from "./state/mockState";
-import { adminView, aiView, authView, messagesView, profileView } from "./views/routeViews";
+import { rankingRow } from "./components/markup";
+import { people } from "./data/fixtures";
+import { authView } from "./views/routeViews";
+import { ApiError, api, getRooms, getSession, jsonRequest, type CurrentUser, type RoomInfo } from "./api/client";
 document.body.insertAdjacentHTML("afterbegin", `<div class="premium-splash" data-splash><div class="splash-core"><span class="splash-ring"></span><span class="splash-wave left"><i></i><i></i><i></i></span><strong class="splash-mark">Ses<em>10</em></strong><span class="splash-wave right"><i></i><i></i><i></i></span><small>SESİNLE BAĞLAN</small></div></div>`);
 window.setTimeout(() => document.querySelector("[data-splash]")?.classList.add("is-hidden"), 1050);
 window.setTimeout(() => document.querySelector("[data-splash]")?.remove(), 1750);
-const roomMarkup = rooms.map(roomCard).join("");
+const roomMarkup = `<div class="empty-state" data-room-directory>Giriş yaptıktan sonra gerçek canlı odalar burada gösterilecek.</div>`;
 const peopleMarkup = people.map(rankingRow).join("");
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 <div class="app"><header class="navbar"><a class="logo" href="#top"><span class="logo-mark">S</span><span>ses<span>on</span></span></a><nav><a class="active" href="#top">Keşfet</a><a href="#rooms">Canlı odalar</a><a href="#popular">Popüler</a><a href="#rankings">Sıralama</a><a href="#events">Etkinlikler</a></nav><div class="nav-right"><span class="live-status"><i></i> 2.4K kişi online</span><button class="login" data-open-auth>Giriş yap</button><button class="join" data-open-auth>Kayıt ol <span>↗</span></button><button class="hamburger">☰</button></div></header>
@@ -70,115 +70,135 @@ function bindLandingInteractions(): void {
 }
 
 function bindAuthInteractions(): void {
-  document.querySelectorAll<HTMLButtonElement>("[data-auth-tab]").forEach((tab) => tab.addEventListener("click", () => {
-    document.querySelectorAll("[data-auth-tab]").forEach((item) => item.classList.remove("active"));
-    tab.classList.add("active");
-    const signup = tab.dataset.authTab === "signup";
+  let mode: "login" | "signup" = "login";
+  const setMode = (next: "login" | "signup") => {
+    mode = next;
+    document.querySelectorAll<HTMLButtonElement>("[data-auth-tab]").forEach((item) => item.classList.toggle("active", item.dataset.authTab === mode));
+    const signup = mode === "signup";
+    const fields = document.querySelector<HTMLElement>("[data-register-fields]");
+    const username = document.querySelector<HTMLInputElement>("#route-username");
+    const login = document.querySelector<HTMLInputElement>("#route-email");
+    if (fields) fields.hidden = !signup;
+    if (username) username.required = signup;
+    if (login) { login.type = signup ? "email" : "text"; login.name = signup ? "email" : "login"; login.placeholder = signup ? "ornek@email.com" : "E-posta veya kullanıcı adı"; }
     document.querySelector<HTMLElement>("[data-auth-heading]")!.innerHTML = signup ? "SesOn'a <em>katıl.</em>" : "Tekrar <em>hoş geldin.</em>";
-    document.querySelector<HTMLElement>("[data-auth-copy]")!.textContent = signup ? "Topluluğa katılmak için bilgilerini gir." : "SesOn'a devam etmek için e-posta adresini gir.";
+    document.querySelector<HTMLElement>("[data-auth-copy]")!.textContent = signup ? "Topluluğa katılmak için gerçek hesap bilgilerini gir." : "Güvenli oturumunla SesOn'a devam et.";
     document.querySelector<HTMLButtonElement>("[data-auth-submit]")!.innerHTML = `${signup ? "Hesap oluştur" : "Giriş yap"} <span>→</span>`;
-  }));
-  document.querySelector<HTMLFormElement>(".auth-form")?.addEventListener("submit", (event) => {
+  };
+  document.querySelectorAll<HTMLButtonElement>("[data-auth-tab]").forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.authTab === "signup" ? "signup" : "login")));
+  document.querySelector<HTMLButtonElement>("[data-password-toggle]")?.addEventListener("click", (event) => {
+    const password = document.querySelector<HTMLInputElement>("#route-password");
+    if (!password) return;
+    password.type = password.type === "password" ? "text" : "password";
+    (event.currentTarget as HTMLButtonElement).setAttribute("aria-label", password.type === "password" ? "Şifreyi göster" : "Şifreyi gizle");
+  });
+  document.querySelector<HTMLFormElement>(".auth-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
-    form.querySelectorAll(".field-error").forEach((item) => item.remove());
-    const email = form.querySelector<HTMLInputElement>("#route-email");
-    const password = form.querySelector<HTMLInputElement>("#route-password");
-    const errors: string[] = [];
-    if (!email?.value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) errors.push("Geçerli bir e-posta adresi gir.");
-    if (!password?.value || password.value.length < 6) errors.push("Şifren en az 6 karakter olmalı.");
-    if (errors.length) { errors.forEach((message) => form.insertAdjacentHTML("beforeend", `<small class="field-error">${message}</small>`)); return; }
-    form.insertAdjacentHTML("beforeend", `<small class="form-success">İşlem mock olarak tamamlandı ✓</small>`);
+    const feedback = form.querySelector<HTMLElement>("[data-auth-feedback]");
+    const submit = form.querySelector<HTMLButtonElement>("[data-auth-submit]");
+    const login = form.querySelector<HTMLInputElement>("#route-email")?.value.trim() ?? "";
+    const password = form.querySelector<HTMLInputElement>("#route-password")?.value ?? "";
+    const username = form.querySelector<HTMLInputElement>("#route-username")?.value.trim() ?? "";
+    if (mode === "signup" && (!/^[\p{L}\p{N}_.-]{3,40}$/u.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login))) { if (feedback) feedback.textContent = "Geçerli kullanıcı adı ve e-posta gir."; return; }
+    if (password.length < 12 || password.length > 128) { if (feedback) feedback.textContent = "Şifre 12-128 karakter olmalı."; return; }
+    if (submit) { submit.disabled = true; submit.textContent = mode === "signup" ? "Hesap oluşturuluyor…" : "Giriş yapılıyor…"; }
+    if (feedback) { feedback.textContent = ""; feedback.classList.remove("is-error"); }
+    try {
+      const result = mode === "signup" ? await jsonRequest<{ user: CurrentUser }>("/api/auth/register", "POST", { username, email: login, password }) : await jsonRequest<{ user: CurrentUser }>("/api/auth/login", "POST", { login, password });
+      currentUser = result.user;
+      navigate("/room");
+    } catch (error) {
+      if (feedback) { feedback.textContent = error instanceof Error ? error.message : "Giriş tamamlanamadı."; feedback.classList.add("is-error"); }
+      if (submit) { submit.disabled = false; submit.innerHTML = `${mode === "signup" ? "Hesap oluştur" : "Giriş yap"} <span>→</span>`; }
+    }
   });
   document.querySelector<HTMLButtonElement>(".hamburger")?.addEventListener("click", () => document.querySelector("nav")?.classList.toggle("open"));
 }
-
 function escapeHTML(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
 }
 
-function bindGenericInteractions(): void {
-  document.querySelectorAll<HTMLButtonElement>(".hamburger").forEach((button) => button.addEventListener("click", () => document.querySelector("nav")?.classList.toggle("open")));
-  document.querySelectorAll<HTMLButtonElement>(".profile-tabs button").forEach((tab) => tab.addEventListener("click", () => { document.querySelectorAll(".profile-tabs button").forEach((item) => item.classList.remove("active")); tab.classList.add("active"); }));
-
-  document.querySelectorAll<HTMLButtonElement>(".conversation").forEach((conversation) => conversation.addEventListener("click", () => {
-    document.querySelectorAll(".conversation").forEach((item) => item.classList.remove("active"));
-    conversation.classList.add("active");
-    const selected = mockConversations.find((item) => item.id === conversation.dataset.conversation);
-    if (!selected) return;
-    const header = document.querySelector<HTMLElement>(".thread-head");
-    const body = document.querySelector<HTMLElement>("[data-thread-body]");
-    if (header) header.innerHTML = `<span class="person-avatar ${selected.tone}">${selected.initials}</span><div><b>${selected.name}</b><small>Şu an aktif · @${selected.name.toLowerCase().replace(/ /g, "")}</small></div><button class="round">⋯</button>`;
-    if (body) body.innerHTML = `<div class="thread-date">BUGÜN</div>${selected.messages.length ? selected.messages.map((message) => `<div class="message ${message.from === "me" ? "sent" : "received"}">${escapeHTML(message.text)} <small>${message.time}</small></div>`).join("") : `<div class="empty-state">Henüz mesaj yok. İlk mesajı sen gönder.</div>`}`;
-  }));
-
-  document.querySelector<HTMLFormElement>("[data-message-form]")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const input = form.querySelector<HTMLInputElement>("input");
-    const text = input?.value.trim() ?? "";
-    const body = document.querySelector<HTMLElement>("[data-thread-body]");
-    if (!text || !body) return;
-    body.insertAdjacentHTML("beforeend", `<div class="message sent">${escapeHTML(text)} <small>şimdi</small></div>`);
-    if (input) input.value = "";
-    body.scrollTop = body.scrollHeight;
-  });
-
-  document.querySelector<HTMLButtonElement>("[data-profile-edit]")?.addEventListener("click", (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    button.textContent = button.textContent?.includes("Kaydedildi") ? "Düzenle" : "Kaydedildi ✓";
-    document.querySelector<HTMLElement>(".profile-main h1")?.classList.toggle("is-edited");
-  });
-  document.querySelector<HTMLButtonElement>("[data-follow]")?.addEventListener("click", (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    const following = button.dataset.following === "true";
-    button.dataset.following = String(!following);
-    button.innerHTML = following ? "Takip et <span>＋</span>" : "Takip ediliyor <span>✓</span>";
-  });
-  document.querySelector<HTMLButtonElement>("[data-wallet]")?.addEventListener("click", (event) => { (event.currentTarget as HTMLButtonElement).textContent = "Cüzdan açıldı ✓"; });
-
-  document.querySelectorAll<HTMLFormElement>(".ai-composer").forEach((form) => form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const input = form.querySelector<HTMLInputElement>("input");
-    const text = input?.value.trim() ?? "";
-    const messages = form.closest<HTMLElement>(".ai-chat")?.querySelector<HTMLElement>(".ai-messages");
-    if (!text || !messages) return;
-    const response = form.closest(".nova-page") ? "Sesindeki niyeti anladım. Bunu daha etkili bir hikâyeye dönüştürmen için birkaç önerim var." : "Bunu senin için not aldım. Şu anda canlı odalarda benzer bir sohbet bulabilirim.";
-    messages.insertAdjacentHTML("beforeend", `<div class="ai-bubble user">${escapeHTML(text)}</div><div class="ai-bubble ai-loading">Yanıt hazırlanıyor…</div>`);
-    if (input) input.value = "";
-    window.setTimeout(() => { const loading = messages.querySelector<HTMLElement>(".ai-loading"); if (loading) { loading.classList.remove("ai-loading"); loading.textContent = response; } }, 350);
-  }));
-
-  const adminSearch = document.querySelector<HTMLInputElement>("[data-admin-search]");
-  adminSearch?.addEventListener("input", () => {
-    const query = adminSearch.value.toLocaleLowerCase("tr-TR");
-    document.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => { row.hidden = !row.textContent?.toLocaleLowerCase("tr-TR").includes(query); });
-    const visible = [...document.querySelectorAll<HTMLTableRowElement>("tbody tr")].some((row) => !row.hidden);
-    const empty = document.querySelector<HTMLElement>("[data-admin-empty]");
-    if (empty) empty.hidden = visible;
-  });
-  document.querySelectorAll<HTMLButtonElement>("[data-admin-action]").forEach((button) => button.addEventListener("click", () => { button.textContent = "✓"; button.classList.add("done"); }));
-  document.querySelectorAll<HTMLElement>(".admin-nav-item").forEach((item) => item.addEventListener("click", () => { document.querySelectorAll(".admin-nav-item").forEach((entry) => entry.classList.remove("active")); item.classList.add("active"); }));
+function bindRoomInteractions(room: RoomInfo): void {
+  roomCleanup = bindLiveKitRoom(room);
 }
 
-
-function bindRoomInteractions(): void {
-  bindLiveKitRoom();
-}
-
-function renderRoute(): void {
+async function renderRoute(): Promise<void> {
+  if (roomCleanup) { void roomCleanup(); roomCleanup = undefined; }
   const route = routeFromLocation();
-  if (route === "auth") { app.innerHTML = authView(); bindAuthInteractions(); return; }
-  if (route === "room") { app.innerHTML = premiumRoomView(); bindRoomInteractions(); return; }
-  if (route === "profile") { app.innerHTML = profileView(); bindGenericInteractions(); return; }
-  if (route === "messages") { app.innerHTML = messagesView(); bindGenericInteractions(); return; }
-  if (route === "nova") { app.innerHTML = aiView("nova"); bindGenericInteractions(); return; }
-  if (route === "lina") { app.innerHTML = aiView("lina"); bindGenericInteractions(); return; }
-  if (route === "admin") { app.innerHTML = adminView(); bindGenericInteractions(); return; }
+  if (route === "auth") { if (currentUser) { navigate("/room"); return; } app.innerHTML = authView(); bindAuthInteractions(); return; }
+  if (route === "room") {
+    if (!currentUser) { app.innerHTML = authView(); bindAuthInteractions(); return; }
+    try {
+      const listing = await getRooms();
+      const requested = new URLSearchParams(window.location.search).get("room");
+      const room = listing.rooms.find((item) => item.slug === requested) ?? listing.rooms[0];
+      const creating = new URLSearchParams(window.location.search).get("new") === "1";
+      app.innerHTML = premiumRoomView(creating ? undefined : room, currentUser, listing.rooms);
+      bindAuthenticatedChrome();
+      bindRoomDirectory();
+      if (!creating && room) bindRoomInteractions(room); else bindRoomCreation();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) { currentUser = null; app.innerHTML = authView(); bindAuthInteractions(); return; }
+      app.innerHTML = `<div class="route-page"><div class="fatal-state">Oda verileri yüklenemedi. Lütfen tekrar dene.</div></div>`;
+    }
+    return;
+  }
+  if (route !== "landing" && !currentUser) { app.innerHTML = authView(); bindAuthInteractions(); return; }
+  if (route === "profile" && currentUser) { app.innerHTML = accountView(currentUser); bindAuthenticatedChrome(); return; }
+  if (route === "admin" && currentUser?.role !== "admin") { navigate("/room"); return; }
+  if (route === "messages" || route === "nova" || route === "lina" || route === "admin") { app.innerHTML = unavailableView(route, currentUser!); bindAuthenticatedChrome(); return; }
   app.innerHTML = landingMarkup;
   bindLandingInteractions();
+  if (currentUser) void hydrateLandingRooms();
 }
 
-window.addEventListener("hashchange", renderRoute);
-window.addEventListener("popstate", renderRoute);
-renderRoute();
+async function hydrateLandingRooms(): Promise<void> {
+  const target = document.querySelector<HTMLElement>("[data-room-directory]")?.parentElement;
+  if (!target) return;
+  try {
+    const { rooms } = await getRooms();
+    target.innerHTML = rooms.length ? rooms.map((room) => `<article class="room-card" data-real-room="${escapeHTML(room.slug)}" tabindex="0" role="button"><div class="room-image"><span class="room-avatar cyan">${escapeHTML(room.owner.username.slice(0, 2).toLocaleUpperCase("tr-TR"))}</span></div><div class="room-info"><span class="room-topic">${escapeHTML(room.category)}</span><h3>${escapeHTML(room.title)}</h3><p>${escapeHTML(room.owner.username)} · Canlı oda</p></div></article>`).join("") : `<div class="empty-state">Henüz açık oda yok. Oda ekranından ilk odayı oluşturabilirsin.</div>`;
+    target.querySelectorAll<HTMLElement>("[data-real-room]").forEach((card) => card.addEventListener("click", () => navigate(`/room?room=${encodeURIComponent(card.dataset.realRoom ?? "")}`)));
+  } catch { target.innerHTML = `<div class="empty-state">Odalar şu anda yüklenemedi.</div>`; }
+}
+
+function bindRoomDirectory(): void {
+  document.querySelector<HTMLSelectElement>("[data-room-select]")?.addEventListener("change", (event) => navigate(`/room?room=${encodeURIComponent((event.currentTarget as HTMLSelectElement).value)}`));
+  document.querySelector<HTMLButtonElement>("[data-new-room]")?.addEventListener("click", () => navigate("/room?new=1"));
+}
+
+function accountView(user: CurrentUser): string {
+  const safe = escapeHTML(user.username); const email = escapeHTML(user.email); const initials = safe.slice(0, 2).toLocaleUpperCase("tr-TR");
+  return `<div class="route-page auth-page"><main class="auth-layout"><section class="auth-pitch"><span class="eyebrow"><i></i> GERÇEK HESAP</span><h1>${safe}</h1><p>Profil bilgileri doğrulanmış oturumdan yüklenmiştir.</p></section><section class="auth-screen"><span class="profile-big-avatar">${initials}</span><h2>${safe}</h2><p>${email}</p><p>Hesap rolü: ${user.role}</p><button class="join" data-logout>Çıkış yap</button></section></main></div>`;
+}
+function unavailableView(route: string, user: CurrentUser): string {
+  return `<div class="route-page auth-page"><main class="auth-layout"><section class="auth-pitch"><span class="eyebrow"><i></i> ${escapeHTML(route.toLocaleUpperCase("tr-TR"))}</span><h1>Henüz kullanıma açık değil.</h1><p>Bu özellik için gerçek production backend sözleşmesi tamamlanmadan sahte veri veya sahte başarı gösterilmiyor.</p><a class="join" href="/room">Odaya dön →</a></section><section class="auth-screen"><h2>${escapeHTML(user.username)}</h2><p>Oturum doğrulandı.</p><button class="join" data-logout>Çıkış yap</button></section></main></div>`;
+}
+
+function bindAuthenticatedChrome(): void {
+  document.querySelector<HTMLButtonElement>("[data-logout]")?.addEventListener("click", async () => {
+    if (roomCleanup) { await roomCleanup(); roomCleanup = undefined; }
+    await api<void>("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => undefined);
+    currentUser = null;
+    navigate("/auth");
+  });
+}
+
+function bindRoomCreation(): void {
+  document.querySelector<HTMLFormElement>("[data-room-create]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const feedback = form.querySelector<HTMLElement>("[data-room-create-feedback]");
+    const data = new FormData(form);
+    try {
+      const result = await jsonRequest<{ room: RoomInfo }>("/api/rooms", "POST", { title: String(data.get("title") ?? ""), category: String(data.get("category") ?? ""), description: String(data.get("description") ?? "") });
+      navigate(`/room?room=${encodeURIComponent(result.room.slug)}`);
+    } catch (error) { if (feedback) { feedback.textContent = error instanceof Error ? error.message : "Oda oluşturulamadı."; feedback.classList.add("is-error"); } }
+  });
+}
+let currentUser: CurrentUser | null = null;
+let roomCleanup: (() => Promise<void>) | undefined;
+window.addEventListener("hashchange", () => { void renderRoute(); });
+window.addEventListener("popstate", () => { void renderRoute(); });
+void getSession().then(({ user }) => { currentUser = user; return renderRoute(); }).catch(() => renderRoute());

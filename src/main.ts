@@ -7,6 +7,7 @@ import { createAuthApi, readCookie } from "./http/authApi.js";
 import { createHttpServer } from "./http/server.js";
 import { createDatabaseClient } from "./infrastructure/database/client.js";
 import { PostgresAuthRepository } from "./infrastructure/database/postgresAuthRepository.js";
+import { PostgresRoomRepository } from "./infrastructure/database/postgresRoomRepository.js";
 import { ConsoleLogger } from "./shared/logger.js";
 
 const config = loadConfig();
@@ -15,7 +16,8 @@ const database = createDatabaseClient(config.databaseUrl);
 const authService = new AuthService(new PostgresAuthRepository(database.db), config.auth.sessionTtlSeconds);
 const authApi = createAuthApi(authService, config.auth);
 const authenticate = (request: import("node:http").IncomingMessage) => authService.me(readCookie(request, config.auth.cookieName));
-const server = createHttpServer({ logger, livekit: config.livekit, authApi, authenticate });
+const roomRepository = new PostgresRoomRepository(database.db);
+const server = createHttpServer({ logger, livekit: config.livekit, authApi, authenticate, roomRepository });
 
 function stop(signal: string, httpServer: Server): void {
   logger.info("Shutdown requested", { signal });

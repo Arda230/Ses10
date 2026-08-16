@@ -3,6 +3,7 @@ import { request } from "node:http";
 import { test } from "node:test";
 
 import { createHttpServer } from "../src/http/server.js";
+import { MemoryRoomRepository } from "./memoryRoomRepository.js";
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 const livekit = {
@@ -23,11 +24,13 @@ test("LiveKit token endpoint rejects unauthenticated requests", async () => {
 
 test("LiveKit token identity and name come only from authenticated user", async () => {
   const user = { id: "123e4567-e89b-12d3-a456-426614174000", username: "laradeniz", email: "lara@example.com", role: "user" as const };
+  const repository = new MemoryRoomRepository();
+  repository.seed(user);
   const response = await withServer(async (incoming) => incoming.headers.cookie === "ses10_session=valid" ? user : undefined, (port) => post(port, {
     roomName: "server-identity-room",
     identity: "attacker-selected-identity",
     name: "Attacker",
-  }, "ses10_session=valid"));
+  }, "ses10_session=valid"), repository);
   assert.equal(response.status, 200);
   const payload = JSON.parse(response.body) as { token: string; state: { self: { identity: string; name: string } } };
   const claims = JSON.parse(Buffer.from(payload.token.split(".")[1]!, "base64url").toString("utf8")) as { sub?: string; name?: string; video?: { canPublish?: boolean } };
@@ -35,6 +38,7 @@ test("LiveKit token identity and name come only from authenticated user", async 
   assert.equal(claims.name, "laradeniz");
   assert.equal(claims.video?.canPublish, false);
   assert.deepEqual(payload.state.self, {
+    userId: user.id,
     identity: "user_123e4567e89b12d3a456426614174000",
     name: "laradeniz",
     role: "host",
@@ -45,8 +49,9 @@ test("LiveKit token identity and name come only from authenticated user", async 
 async function withServer<T>(
   authenticate: ((request: import("node:http").IncomingMessage) => Promise<{ id: string; username: string; email: string; role: "user" | "admin" } | undefined>) | undefined,
   run: (port: number) => Promise<T>,
+  roomRepository = new MemoryRoomRepository(),
 ): Promise<T> {
-  const server = createHttpServer({ logger, livekit, authenticate });
+  const server = createHttpServer({ logger, livekit, authenticate, roomRepository });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   assert.ok(address && typeof address !== "string");

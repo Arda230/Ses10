@@ -1,13 +1,14 @@
 import { Room, RoomEvent, Track } from "livekit-client";
+import type { RoomInfo } from "./api/client";
 
 type Role = "host" | "moderator" | "listener";
-interface SeatState { id: number; locked: boolean; occupant: null | { identity: string; name: string; muted: boolean; forceMuted: boolean } }
-interface Snapshot { roomName: string; seats: SeatState[]; participants: number; self: { identity: string; name: string; role: Role; seatId: number | null } }
-interface TokenResponse { token: string; serverUrl: string; state: Snapshot }
+interface SeatState { id: number; locked: boolean; occupant: null | { userId: string; identity: string; name: string; role: Role; muted: boolean; forceMuted: boolean } }
+interface Participant { userId: string; identity: string; name: string; role: Role; seatId: number | null }
+interface Snapshot { roomName: string; revision: number; seats: SeatState[]; participantCount: number; participants: Participant[]; self: Participant }
+interface TokenResponse { token: string; serverUrl: string; room: RoomInfo; state: Snapshot }
 
-const ROOM_NAME = "geceye-bir-sarki";
-
-export function bindLiveKitRoom(): void {
+export function bindLiveKitRoom(roomInfo: RoomInfo): () => Promise<void> {
+  const ROOM_NAME = roomInfo.slug;
   const join = document.querySelector<HTMLButtonElement>("[data-room-join]");
   const mic = document.querySelector<HTMLButtonElement>("[data-mic-toggle]");
   const leave = document.querySelector<HTMLButtonElement>(".leave-button");
@@ -65,18 +66,20 @@ export function bindLiveKitRoom(): void {
     }).join("");
     const memberList = document.querySelector<HTMLElement>("[data-member-list]");
     const occupied = state.seats.flatMap((seat) => seat.occupant ? [seat.occupant] : []);
-    const visibleMembers = occupied.some((item) => item.identity === state?.self.identity) ? occupied : [...occupied, { identity: state.self.identity, name: state.self.name, muted: true, forceMuted: false }];
-    if (memberList) memberList.innerHTML = visibleMembers.map((member) => {
-      const ownRole = member.identity === state?.self.identity ? state.self.role : "listener";
-      const role = ownRole === "host" ? `<em class="role-host">♛ HOST</em>` : ownRole === "moderator" ? `<em class="role-mod">✦ MOD</em>` : `<em>${member.muted ? "⌁" : "♫"}</em>`;
-      return `<article><span class="member-avatar ${ownRole === "host" ? "cyan" : "violet"}">${initials(member.name)}</span><span><b>${escapeHtml(member.name)}</b><small>${member.muted ? "Dinliyor" : "Konuşmacı"}</small></span>${role}</article>`;
+    if (memberList) memberList.innerHTML = state.participants.map((member) => {
+      const seat = state?.seats.find((item) => item.occupant?.identity === member.identity)?.occupant;
+      const badge = member.role === "host" ? `<em class="role-host">♛ HOST</em>` : member.role === "moderator" ? `<em class="role-mod">✦ MOD</em>` : `<em>${seat && !seat.muted ? "♫" : "⌁"}</em>`;
+      const roleControl = state?.self.role === "host" && member.role !== "host" ? `<button class="member-role-action" type="button" data-role-user="${member.userId}" data-next-role="${member.role === "moderator" ? "listener" : "moderator"}">${member.role === "moderator" ? "Mod kaldır" : "Mod yap"}</button>` : "";
+      return `<article><span class="member-avatar ${member.role === "host" ? "cyan" : "violet"}">${initials(member.name)}</span><span><b>${escapeHtml(member.name)}</b><small>${seat ? seat.muted ? "Mic kapalı" : "Konuşmacı" : "Dinliyor"}</small></span>${badge}${roleControl}</article>`;
     }).join("");
+    const stack = document.querySelector<HTMLElement>("[data-member-stack]");
+    if (stack) stack.innerHTML = state.participants.slice(0, 3).map((member) => `<i>${initials(member.name)}</i>`).join("") + (state.participantCount > 3 ? `<i>+${state.participantCount - 3}</i>` : "");
     const memberTotal = document.querySelector<HTMLElement>("[data-member-total]");
     const speakerTotal = document.querySelector<HTMLElement>("[data-speaker-total]");
-    if (memberTotal) memberTotal.textContent = String(state.participants);
+    if (memberTotal) memberTotal.textContent = String(state.participantCount);
     if (speakerTotal) speakerTotal.textContent = String(occupied.length);
     const participantCount = document.querySelector<HTMLElement>("[data-participant-count]");
-    if (participantCount) participantCount.textContent = String(state.participants);
+    if (participantCount) participantCount.textContent = String(state.participantCount);
     if (hostControls) hostControls.hidden = state.self.role !== "host";
     const ownSeat = state.seats.find((seat) => seat.occupant?.identity === state?.self.identity);
     if (mic) {
@@ -175,7 +178,15 @@ export function bindLiveKitRoom(): void {
     if (!state?.self.seatId) { show("Şu anda bir mic koltuğunda değilsin."); return; }
     void leaveSeat().catch((error) => show(error instanceof Error ? error.message : "Mic’ten inilemedi.", true));
   });
-  leave?.addEventListener("click", () => room?.disconnect());
+  document.querySelector<HTMLElement>("[data-member-list]")?.addEventListener("click", async (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-role-user]");
+    if (!button) return;
+    try { await requestJson(`/api/rooms/${ROOM_NAME}/roles`, "POST", { targetUserId: button.dataset.roleUser, role: button.dataset.nextRole }); }
+    catch (error) { show(error instanceof Error ? error.message : "Rol güncellenemedi.", true); }
+  });
+  const disconnect = async () => { events?.close(); events = undefined; const activeRoom = room; if (activeRoom) { await requestJson(`/api/rooms/${ROOM_NAME}/participants/me`, "DELETE").catch(() => undefined); activeRoom.disconnect(); room = undefined; } };
+  leave?.addEventListener("click", () => { void disconnect(); });
+  return disconnect;
 }
 
 function escapeHtml(value: string): string {
