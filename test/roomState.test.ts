@@ -11,6 +11,18 @@ test("persisted room owner is host and room has twelve fixed seats", () => {
   assert.deepEqual(snapshot.seats.map((seat) => seat.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 });
 
+test("a participant is not removed after 30 seconds merely because it has no SSE subscription", (context) => {
+  context.mock.timers.enable(["setTimeout"]);
+  const disconnected: string[] = [];
+  const store = new RoomStateStore((_roomName, identity) => { disconnected.push(identity); });
+  const participant = store.join("android-room", "android-user", "android-identity", "Android", "listener");
+
+  context.mock.timers.tick(30_001);
+
+  assert.equal(store.participant("android-room", participant.identity)?.identity, participant.identity);
+  assert.deepEqual(disconnected, []);
+});
+
 test("seat collision, lock, leave and host removal are enforced", () => {
   const store = new RoomStateStore();
   const host = store.join("test-room", "host-user", "host-1", "Host", "host");

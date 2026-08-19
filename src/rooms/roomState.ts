@@ -34,7 +34,6 @@ interface ParticipantState {
   sessionId: string;
   streams: Set<ServerResponse>;
   disconnectTimer: NodeJS.Timeout | undefined;
-  joinTimer: NodeJS.Timeout | undefined;
 }
 
 interface InternalRoom {
@@ -61,9 +60,7 @@ export class RoomStateStore {
       existing.disconnectTimer = undefined;
       return existing;
     }
-    const participant: ParticipantState = { userId, identity, name, role, sessionId: randomUUID(), streams: new Set(), disconnectTimer: undefined, joinTimer: undefined };
-    participant.joinTimer = setTimeout(() => { if (participant.streams.size === 0) this.disconnect(roomName, identity); }, 30_000);
-    participant.joinTimer.unref();
+    const participant: ParticipantState = { userId, identity, name, role, sessionId: randomUUID(), streams: new Set(), disconnectTimer: undefined };
     room.participants.set(identity, participant);
     this.#sessions.set(participant.sessionId, { roomName, identity });
     this.#changed(roomName);
@@ -157,8 +154,6 @@ export class RoomStateStore {
     const participant = this.#room(roomName).participants.get(identity);
     if (!participant) throw new Error("UNAUTHORIZED");
     participant.streams.add(response);
-    if (participant.joinTimer) clearTimeout(participant.joinTimer);
-    participant.joinTimer = undefined;
     if (participant.disconnectTimer) clearTimeout(participant.disconnectTimer);
     participant.disconnectTimer = undefined;
     this.#writeSnapshot(roomName, participant, response);
@@ -179,7 +174,6 @@ export class RoomStateStore {
     room.participants.delete(identity);
     this.#sessions.delete(participant.sessionId);
     if (participant.disconnectTimer) clearTimeout(participant.disconnectTimer);
-    if (participant.joinTimer) clearTimeout(participant.joinTimer);
     for (const stream of participant.streams) stream.end();
     this.#changed(roomName);
     void this.onDisconnect?.(roomName, identity);

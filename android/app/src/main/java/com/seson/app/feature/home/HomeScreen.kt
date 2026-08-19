@@ -81,15 +81,10 @@ fun HomeScreen(onOpenRoom: (String) -> Unit) {
 
 @Composable
 private fun DiscoverScreen(onOpenRoom: (String) -> Unit, modifier: Modifier = Modifier) {
-    var rooms by remember { mutableStateOf(listOf(
-        DiscoverRoom("geceye-bir-sarki", "Geceye Bir Şarkı", "MÜZİK & SOHBET", 128, "Mert, Ece ve 126 kişi", Color(0xFF9B7BFF)),
-        DiscoverRoom("yeni-sesler", "Yeni Sesler Sahnesi", "TOPLULUK", 64, "Selin, Deniz ve 62 kişi", Color(0xFF4B8DFF)),
-        DiscoverRoom("kahve-molasi", "Kahve Molası", "GÜNDELİK", 38, "Lara ve 37 kişi", Color(0xFF58D8C4)),
-        DiscoverRoom("gece-kusagi", "Gece Kuşağı", "SERBEST SOHBET", 91, "Arda, Mina ve 89 kişi", Color(0xFFC565FF)),
-    )) }
+    var rooms by remember { mutableStateOf(emptyList<DiscoverRoom>()) }
     LaunchedEffect(Unit) {
         Ses10Api.rooms().onSuccess { apiRooms ->
-            if (apiRooms.isNotEmpty()) rooms = apiRooms.mapIndexed { index, room ->
+            rooms = apiRooms.mapIndexed { index, room ->
                 val accents = listOf(Color(0xFF9B7BFF), Color(0xFF4B8DFF), Color(0xFF58D8C4), Color(0xFFC565FF))
                 DiscoverRoom(room.slug, room.title, room.category.uppercase(), 1, "Canlı oda", accents[index % accents.size])
             }

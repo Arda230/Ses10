@@ -75,8 +75,14 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
         if (selectedSeatId == null || !connected) return
         scope.launch {
             runCatching { controller.setMicrophoneEnabled(enabled) }
-                .onSuccess { microphoneOn = enabled }
-                .onFailure { connectionLabel = "Mic kullanılamadı" }
+                .onSuccess { published ->
+                    microphoneOn = published
+                    connectionLabel = if (published) "Mikrofon yayında" else "Mikrofon kapalı"
+                }
+                .onFailure {
+                    microphoneOn = controller.isMicrophonePublished()
+                    connectionLabel = it.message ?: "Mikrofon yayınlanamadı"
+                }
         }
     }
 
@@ -135,14 +141,14 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
                                     selectedSeatId == seat.id -> runCatching { controller.leaveSeat() }.onSuccess {
                                         selectedSeatId = null
                                         microphoneOn = false
-                                    }
+                                    }.onFailure { connectionLabel = it.message ?: "Koltuktan ayrılamadı" }
                                     seat.name == null -> runCatching {
                                         if (selectedSeatId != null) controller.leaveSeat()
                                         controller.claimSeat(seat.id)
                                     }.onSuccess {
                                         selectedSeatId = seat.id
                                         microphoneOn = false
-                                    }
+                                    }.onFailure { connectionLabel = it.message ?: "Koltuğa çıkılamadı" }
                                 }
                             }
                         },

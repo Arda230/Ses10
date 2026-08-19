@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val ses10ApiBaseUrl = providers.gradleProperty("SES10_API_BASE_URL").orElse("http://10.0.2.2:3000")
+val ses10ApiBaseUrl = providers.gradleProperty("SES10_API_BASE_URL").orElse("https://api.ses10.com")
 
 android {
     namespace = "com.seson.app"
