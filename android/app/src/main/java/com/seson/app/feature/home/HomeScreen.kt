@@ -1,10 +1,13 @@
 package com.seson.app.feature.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,18 +18,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,6 +45,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.seson.app.core.network.Ses10Api
 
@@ -54,22 +62,17 @@ private data class DiscoverRoom(
     val accent: Color,
 )
 
+private val PageBackground = Color(0xFF080711)
+private val CardBackground = Color(0xFF151321)
+private val MutedText = Color(0xFF918BA4)
+private val LiveGreen = Color(0xFF62E8C9)
+
 @Composable
 fun HomeScreen(onOpenRoom: (String) -> Unit) {
     var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Discover) }
     Scaffold(
-        bottomBar = {
-            NavigationBar(containerColor = Color(0xFF12101A)) {
-                HomeTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        icon = { Text(tab.symbol) },
-                        label = { Text(tab.label) },
-                    )
-                }
-            }
-        },
+        containerColor = PageBackground,
+        bottomBar = { PremiumBottomBar(selectedTab) { selectedTab = it } },
     ) { padding ->
         when (selectedTab) {
             HomeTab.Discover -> DiscoverScreen(onOpenRoom, Modifier.fillMaxSize().padding(padding))
@@ -80,70 +83,202 @@ fun HomeScreen(onOpenRoom: (String) -> Unit) {
 }
 
 @Composable
-private fun DiscoverScreen(onOpenRoom: (String) -> Unit, modifier: Modifier = Modifier) {
-    var rooms by remember { mutableStateOf(emptyList<DiscoverRoom>()) }
-    LaunchedEffect(Unit) {
-        Ses10Api.rooms().onSuccess { apiRooms ->
-            rooms = apiRooms.mapIndexed { index, room ->
-                val accents = listOf(Color(0xFF9B7BFF), Color(0xFF4B8DFF), Color(0xFF58D8C4), Color(0xFFC565FF))
-                DiscoverRoom(room.slug, room.title, room.category.uppercase(), 1, "Canlı oda", accents[index % accents.size])
-            }
+private fun PremiumBottomBar(selectedTab: HomeTab, onSelect: (HomeTab) -> Unit) {
+    NavigationBar(
+        containerColor = Color(0xF512101B),
+        tonalElevation = 0.dp,
+        modifier = Modifier.background(Color(0xFF242030)).padding(horizontal = 8.dp),
+    ) {
+        HomeTab.entries.forEach { tab ->
+            NavigationBarItem(
+                selected = selectedTab == tab,
+                onClick = { onSelect(tab) },
+                icon = {
+                    Surface(
+                        color = if (selectedTab == tab) MaterialTheme.colorScheme.primary.copy(alpha = .18f) else Color.Transparent,
+                        shape = CircleShape,
+                    ) { Text(tab.symbol, Modifier.padding(horizontal = 15.dp, vertical = 7.dp), color = if (selectedTab == tab) MaterialTheme.colorScheme.primary else MutedText) }
+                },
+                label = { Text(tab.label, fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Medium) },
+            )
         }
-    }
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { DiscoverHero() }
-        item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Şimdi canlı", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("${rooms.size} oda", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        items(rooms) { room -> RoomCard(room, onOpenRoom) }
-        item { Spacer(Modifier.height(14.dp)) }
     }
 }
 
 @Composable
-private fun DiscoverHero() {
-    Box(
-        Modifier.fillMaxWidth().height(210.dp).background(
-            Brush.radialGradient(listOf(Color(0x665B3FD0), Color(0x221A3B7A), Color.Transparent)),
-        ).padding(horizontal = 20.dp, vertical = 24.dp),
+private fun DiscoverScreen(onOpenRoom: (String) -> Unit, modifier: Modifier = Modifier) {
+    var rooms by remember { mutableStateOf(emptyList<DiscoverRoom>()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
+    var selectedCategory by rememberSaveable { mutableStateOf("Tümü") }
+
+    LaunchedEffect(retryKey) {
+        loading = true
+        error = null
+        Ses10Api.rooms()
+            .onSuccess { apiRooms ->
+                rooms = apiRooms.mapIndexed { index, room ->
+                    val accents = listOf(Color(0xFFA879FF), Color(0xFF4B9CFF), Color(0xFF58DFC3), Color(0xFFF26FC5))
+                    DiscoverRoom(room.slug, room.title, room.category.uppercase(), 1, "Canlı oda", accents[index % accents.size])
+                }
+                loading = false
+            }
+            .onFailure {
+                error = it.message ?: "Odalar şu anda yüklenemiyor."
+                loading = false
+            }
+    }
+
+    val categories = listOf("Tümü") + rooms.map { it.category }.distinct()
+    val visibleRooms = if (selectedCategory == "Tümü") rooms else rooms.filter { it.category == selectedCategory }
+
+    LazyColumn(
+        modifier = modifier.background(PageBackground),
+        contentPadding = PaddingValues(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(Modifier.align(Alignment.BottomStart), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("SES10", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Text("Sesini bul.\nSohbete katıl.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("Canlı odaları keşfet, dinle ve bağlan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item { DiscoverHero(roomCount = rooms.size) }
+        if (rooms.isNotEmpty()) {
+            item {
+                CategoryRail(categories, selectedCategory) { selectedCategory = it }
+            }
         }
-        Box(Modifier.align(Alignment.TopEnd).size(72.dp).shadow(22.dp, CircleShape, ambientColor = Color(0xFF7657FF), spotColor = Color(0xFF4B8DFF)).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF8066FF), Color(0xFF315FD6)))), contentAlignment = Alignment.Center) {
-            Text("10", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        item {
+            SectionHeader(
+                title = if (selectedCategory == "Tümü") "Şimdi canlı" else selectedCategory.lowercase().replaceFirstChar { it.uppercase() },
+                count = visibleRooms.size,
+            )
         }
+        when {
+            loading -> item { LoadingRooms() }
+            error != null -> item { ErrorState(error.orEmpty()) { retryKey += 1 } }
+            visibleRooms.isEmpty() -> item { EmptyRooms() }
+            else -> items(visibleRooms, key = { it.slug }) { room -> RoomCard(room, onOpenRoom) }
+        }
+    }
+}
+
+@Composable
+private fun DiscoverHero(roomCount: Int) {
+    Box(
+        Modifier.fillMaxWidth().height(282.dp).background(
+            Brush.verticalGradient(listOf(Color(0xFF171135), Color(0xFF0D0A1B), PageBackground)),
+        ).padding(horizontal = 20.dp, vertical = 20.dp),
+    ) {
+        Box(
+            Modifier.align(Alignment.TopEnd).size(180.dp).clip(CircleShape).background(
+                Brush.radialGradient(listOf(Color(0x66533EE9), Color.Transparent)),
+            ),
+        )
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(Color(0xFFA879FF), Color(0xFF4B83FF)))), contentAlignment = Alignment.Center) {
+                        Text("S", fontWeight = FontWeight.Black, color = Color.White)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text("SES10", style = MaterialTheme.typography.titleMedium, color = Color(0xFFF5F1FF), fontWeight = FontWeight.Black)
+                        Text("CANLI SOSYAL SES", color = MutedText, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                Surface(color = Color(0xFF171522), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF2B2738))) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(LiveGreen))
+                        Spacer(Modifier.width(7.dp))
+                        Text("$roomCount canlı", color = LiveGreen, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("SESİNİ BUL", color = Color(0xFFBBA8FF), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
+                Text("Sohbetin tam\nortasına katıl.", style = MaterialTheme.typography.displaySmall, color = Color(0xFFFAF8FF), fontWeight = FontWeight.Black)
+                Text("Yeni insanlarla tanış, canlı odaları dinle\nve hazır olduğunda mikrofonu al.", color = MutedText, style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    repeat(14) { index ->
+                        Box(Modifier.width(3.dp).height((7 + (index * 7 % 22)).dp).clip(CircleShape).background(if (index % 3 == 0) Color(0xFFA879FF) else Color(0xFF55DCC7)))
+                    }
+                    Spacer(Modifier.width(5.dp))
+                    Text("Şu an yayında", color = Color(0xFFD9D3E6), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryRail(categories: List<String>, selected: String, onSelect: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        categories.forEach { category ->
+            val active = category == selected
+            Surface(
+                modifier = Modifier.clickable { onSelect(category) },
+                shape = RoundedCornerShape(14.dp),
+                color = if (active) MaterialTheme.colorScheme.primary else Color(0xFF14121D),
+                border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else Color(0xFF292534)),
+            ) {
+                Text(category.lowercase().replaceFirstChar { it.uppercase() }, Modifier.padding(horizontal = 15.dp, vertical = 9.dp), color = if (active) Color(0xFF171226) else Color(0xFFC9C2D4), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, count: Int) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("KEŞFET", color = Color(0xFFA879FF), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+            Text(title, style = MaterialTheme.typography.headlineSmall, color = Color(0xFFF5F1FF), fontWeight = FontWeight.Bold)
+        }
+        Text("$count oda", color = MutedText, style = MaterialTheme.typography.labelMedium)
     }
 }
 
 @Composable
 private fun RoomCard(room: DiscoverRoom, onClick: (String) -> Unit) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = RoundedCornerShape(26.dp)
     Card(
-        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().shadow(12.dp, shape, ambientColor = room.accent.copy(alpha = .25f), spotColor = room.accent.copy(alpha = .3f)).clickable { onClick(room.slug) },
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().shadow(16.dp, shape, ambientColor = room.accent.copy(alpha = .14f), spotColor = room.accent.copy(alpha = .18f)).clickable { onClick(room.slug) },
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF191622)),
+        border = BorderStroke(1.dp, room.accent.copy(alpha = .23f)),
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
     ) {
-        Box(Modifier.background(Brush.linearGradient(listOf(room.accent.copy(alpha = .18f), Color.Transparent)))) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.background(Brush.linearGradient(listOf(room.accent.copy(alpha = .16f), Color.Transparent, Color.Transparent)))) {
+            Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(room.category, color = room.accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Surface(color = room.accent.copy(alpha = .14f), shape = RoundedCornerShape(10.dp)) {
+                        Text(room.category, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = room.accent, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF6FE7D4)))
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(LiveGreen))
                         Spacer(Modifier.width(6.dp))
-                        Text("CANLI", color = Color(0xFF6FE7D4), style = MaterialTheme.typography.labelMedium)
+                        Text("CANLI", color = LiveGreen, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
                     }
                 }
-                Text(room.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(38.dp).clip(CircleShape).background(room.accent.copy(alpha = .3f)), contentAlignment = Alignment.Center) { Text(room.title.take(2).uppercase(), color = room.accent, style = MaterialTheme.typography.labelMedium) }
+                Text(room.title, style = MaterialTheme.typography.headlineSmall, color = Color(0xFFFAF8FF), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row {
+                        repeat(3) { index ->
+                            Box(
+                                Modifier.padding(start = if (index == 0) 0.dp else 0.dp).size(38.dp).clip(CircleShape).background(
+                                    if (index == 0) Brush.linearGradient(listOf(room.accent, room.accent.copy(alpha = .5f))) else Brush.linearGradient(listOf(Color(0xFF2C2838), Color(0xFF1D1A26))),
+                                ),
+                                contentAlignment = Alignment.Center,
+                            ) { Text(if (index == 0) room.title.take(2).uppercase() else "•", color = if (index == 0) Color.White else MutedText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+                        }
+                    }
                     Spacer(Modifier.width(10.dp))
-                    Column { Text(room.hosts, style = MaterialTheme.typography.bodyMedium); Text("${room.participants} kişi dinliyor", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                    Column(Modifier.weight(1f)) {
+                        Text(room.hosts, color = Color(0xFFE8E3F0), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("${room.participants} kişi dinliyor", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Surface(color = room.accent, shape = CircleShape) {
+                        Text("→", Modifier.padding(horizontal = 14.dp, vertical = 10.dp), color = Color(0xFF100D18), fontWeight = FontWeight.Black)
+                    }
                 }
             }
         }
@@ -151,20 +286,59 @@ private fun RoomCard(room: DiscoverRoom, onClick: (String) -> Unit) {
 }
 
 @Composable
+private fun LoadingRooms() {
+    Column(Modifier.fillMaxWidth().height(190.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        CircularProgressIndicator(Modifier.size(28.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
+        Spacer(Modifier.height(12.dp))
+        Text("Canlı odalar hazırlanıyor…", color = MutedText)
+    }
+}
+
+@Composable
+private fun ErrorState(message: String, onRetry: () -> Unit) {
+    Surface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = CardBackground, border = BorderStroke(1.dp, Color(0xFF3A3045))) {
+        Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Bağlantı kurulamadı", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(message, color = MutedText, style = MaterialTheme.typography.bodySmall)
+            Surface(Modifier.clickable(onClick = onRetry), color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(13.dp)) {
+                Text("Tekrar dene", Modifier.padding(horizontal = 18.dp, vertical = 10.dp), color = Color(0xFF171226), fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyRooms() {
+    Column(Modifier.fillMaxWidth().height(180.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text("◌", color = Color(0xFFA879FF), style = MaterialTheme.typography.displaySmall)
+        Text("Şimdilik sessiz", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Yeni bir canlı oda başladığında burada görünecek.", color = MutedText, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun MessagesScreen(modifier: Modifier = Modifier) {
-    Column(modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Mesajlar", style = MaterialTheme.typography.headlineMedium)
-        Text("Henüz bir mesajın yok.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Mesajlaşma altyapısı sonraki aşamada bağlanacak.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+    Column(modifier.background(PageBackground).padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("✦", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.displaySmall)
+        Text("Mesajlar", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Henüz bir mesajın yok.", color = MutedText)
+        Text("Yeni sohbetlerin burada görünecek.", color = MutedText, style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
 private fun ProfileTab(modifier: Modifier = Modifier) {
-    Column(modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Profil", Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineMedium)
-        Text("S10", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
-        Text("Ses10 Kullanıcısı", style = MaterialTheme.typography.titleLarge)
-        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("Profil iskeleti hazır"); Text("Gerçek kullanıcı bilgileri auth bağlantısından sonra gösterilecek.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+    Column(modifier.background(PageBackground).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Profil", Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = .2f), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f))) {
+            Text("S10", Modifier.padding(28.dp), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
+        }
+        Text("Ses10 Kullanıcısı", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = CardBackground)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Profil alanın hazır", fontWeight = FontWeight.SemiBold)
+                Text("Gerçek kullanıcı bilgileri auth bağlantısından sonra gösterilecek.", color = MutedText)
+            }
+        }
     }
 }
