@@ -10,15 +10,27 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 internal data class ApiRoom(val slug: String, val title: String, val category: String)
-internal data class LiveKitCredentials(val serverUrl: String, val token: String, val identity: String)
+internal data class RoomSeatOccupant(val identity: String, val name: String, val muted: Boolean)
+internal data class RoomSeatState(val id: Int, val occupant: RoomSeatOccupant?)
+internal data class RoomState(
+    val seats: List<RoomSeatState>,
+    val participantCount: Int,
+    val selfIdentity: String,
+    val selfSeatId: Int?,
+)
+internal class ApiHttpException(val status: Int, val code: String) : IOException(code)
+internal data class LiveKitCredentials(val serverUrl: String, val token: String, val identity: String, val state: RoomState)
 
 internal object Ses10Api {
     private val cookieJar = MemoryCookieJar()
     private val client = OkHttpClient.Builder().cookieJar(cookieJar).build()
+    private val eventClient = client.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val baseUrl = BuildConfig.API_BASE_URL.trimEnd('/')
 
@@ -45,20 +57,29 @@ internal object Ses10Api {
             serverUrl = payload.getString("serverUrl"),
             token = payload.getString("token"),
             identity = payload.getJSONObject("state").getJSONObject("self").getString("identity"),
+            state = parseRoomState(payload.getJSONObject("state")),
         )
     }
 
-    suspend fun claimSeat(roomName: String, seatId: Int) {
-        post("/api/rooms/$roomName/seats/$seatId/claim", JSONObject())
+    fun roomEvents(roomName: String): Response {
+        val request = Request.Builder().url("$baseUrl/api/rooms/$roomName/events").header("Accept", "text/event-stream").get().build()
+        return eventClient.newCall(request).execute().also { response ->
+            if (!response.isSuccessful) {
+                val status = response.code
+                response.close()
+                throw ApiHttpException(status, if (status == 401) "UNAUTHORIZED" else "ROOM_EVENTS_FAILED")
+            }
+        }
     }
 
-    suspend fun leaveSeat(roomName: String) {
-        request("/api/rooms/$roomName/seat", "DELETE", JSONObject())
-    }
+    suspend fun claimSeat(roomName: String, seatId: Int): RoomState =
+        parseRoomState(post("/api/rooms/$roomName/seats/$seatId/claim", JSONObject()))
 
-    suspend fun setMuted(roomName: String, identity: String, muted: Boolean) {
-        post("/api/rooms/$roomName/mute", JSONObject().put("targetIdentity", identity).put("muted", muted))
-    }
+    suspend fun leaveSeat(roomName: String): RoomState =
+        parseRoomState(request("/api/rooms/$roomName/seat", "DELETE", JSONObject()))
+
+    suspend fun setMuted(roomName: String, identity: String, muted: Boolean): RoomState =
+        parseRoomState(post("/api/rooms/$roomName/mute", JSONObject().put("targetIdentity", identity).put("muted", muted)))
 
     suspend fun leaveRoom(roomName: String) {
         request("/api/rooms/$roomName/participants/me", "DELETE", null)
@@ -86,11 +107,27 @@ internal object Ses10Api {
                     is String -> raw
                     else -> "İstek tamamlanamadı (${response.code})."
                 }
-                throw IOException(message)
+                throw ApiHttpException(response.code, message)
             }
             payload
         }
     }
+}
+
+internal fun parseRoomState(payload: JSONObject): RoomState {
+    val seats = payload.getJSONArray("seats")
+    return RoomState(
+        seats = List(seats.length()) { index ->
+            val seat = seats.getJSONObject(index)
+            val occupant = seat.optJSONObject("occupant")?.let {
+                RoomSeatOccupant(it.getString("identity"), it.getString("name"), it.getBoolean("muted"))
+            }
+            RoomSeatState(seat.getInt("id"), occupant)
+        },
+        participantCount = payload.getInt("participantCount"),
+        selfIdentity = payload.getJSONObject("self").getString("identity"),
+        selfSeatId = payload.getJSONObject("self").takeUnless { it.isNull("seatId") }?.getInt("seatId"),
+    )
 }
 
 private class MemoryCookieJar : CookieJar {

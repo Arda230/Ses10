@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import type { ServerResponse } from "node:http";
 import { test } from "node:test";
 
 import { RoomStateStore } from "../src/rooms/roomState.js";
@@ -41,6 +43,28 @@ test("seat collision, lock, leave and host removal are enforced", () => {
   assert.equal(store.snapshot("test-room", second.identity).self.seatId, null);
 });
 
+test("seat claim, mute and leave are broadcast to every SSE subscriber", () => {
+  const store = new RoomStateStore();
+  const first = store.join("sync-room", "user-one", "identity-one", "Birinci", "listener");
+  const second = store.join("sync-room", "user-two", "identity-two", "İkinci", "listener");
+  const firstStream = new SnapshotStream();
+  const secondStream = new SnapshotStream();
+  store.subscribe("sync-room", first.identity, firstStream as unknown as ServerResponse);
+  store.subscribe("sync-room", second.identity, secondStream as unknown as ServerResponse);
+  store.claimSeat("sync-room", first.identity, 4);
+  assert.equal(secondStream.latest().seats[3]?.occupant?.identity, first.identity);
+  store.setMuted("sync-room", first.identity, first.identity, false);
+  assert.equal(secondStream.latest().seats[3]?.occupant?.muted, false);
+  store.leaveSeat("sync-room", first.identity);
+  assert.equal(secondStream.latest().seats[3]?.occupant, null);
+  store.claimSeat("sync-room", first.identity, 4);
+  store.disconnect("sync-room", first.identity);
+  assert.equal(secondStream.latest().seats[3]?.occupant, null);
+  assert.throws(() => store.snapshot("sync-room", first.identity), /UNAUTHORIZED/);
+  firstStream.emit("close");
+  secondStream.emit("close");
+});
+
 test("moderator permissions come from server state and listeners cannot elevate themselves", () => {
   const store = new RoomStateStore();
   const host = store.join("role-room", "host-user", "host-identity", "Host", "host");
@@ -53,3 +77,15 @@ test("moderator permissions come from server state and listeners cannot elevate 
   store.setRole("role-room", host.identity, listener.userId, "moderator");
   assert.equal(store.snapshot("role-room", listener.identity).self.role, "moderator");
 });
+
+
+class SnapshotStream extends EventEmitter {
+  readonly chunks: string[] = [];
+  write(chunk: string) { this.chunks.push(chunk); return true; }
+  end() {}
+  latest() {
+    const data = this.chunks.at(-1)?.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+    assert.ok(data);
+    return JSON.parse(data) as { seats: Array<{ occupant: null | { identity: string; muted: boolean } }> };
+  }
+}

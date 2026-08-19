@@ -2,6 +2,7 @@ package com.seson.app.feature.room
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,7 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,7 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.seson.app.core.livekit.LiveKitRoomController
+import com.seson.app.core.livekit.RoomAudioSession
 import kotlinx.coroutines.launch
 
 private data class MicSeat(val id: Int, val name: String? = null, val initials: String = "+", val muted: Boolean = true)
@@ -58,17 +59,30 @@ private data class MicSeat(val id: Int, val name: String? = null, val initials: 
 fun RoomScreen(roomName: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val controller = remember(roomName) { LiveKitRoomController(context, roomName) }
-    val seats = remember {
+    val controller = remember(roomName) { RoomAudioSession.controller(context, roomName) }
+    val demoSeats = remember {
         listOf(
             MicSeat(1, "Mert", "ME", false), MicSeat(2, "Ece", "EC", false), MicSeat(3, "Lara", "LD"),
             MicSeat(4), MicSeat(5), MicSeat(6, "Deniz", "DA"), MicSeat(7), MicSeat(8), MicSeat(9), MicSeat(10), MicSeat(11), MicSeat(12),
         )
     }
-    var selectedSeatId by remember { mutableStateOf<Int?>(null) }
-    var microphoneOn by remember { mutableStateOf(false) }
+    val backendState by controller.roomState.collectAsState()
+    val liveKitParticipants by controller.liveKitParticipants.collectAsState()
+    val liveKitMicrophones by controller.liveKitMicrophones.collectAsState()
+    val seats = demoSeats.map { demoSeat ->
+        val occupant = backendState?.seats?.firstOrNull { it.id == demoSeat.id }?.occupant
+        if (occupant == null) demoSeat else MicSeat(
+            id = demoSeat.id,
+            name = occupant.name,
+            initials = occupant.name.initials(),
+            muted = occupant.muted || (occupant.identity in liveKitParticipants && occupant.identity !in liveKitMicrophones),
+        )
+    }
+    val selectedSeatId = backendState?.selfSeatId
+    var microphoneOn by remember(controller) { mutableStateOf(controller.isMicrophonePublished()) }
     var message by remember { mutableStateOf("") }
     var connected by remember { mutableStateOf(false) }
+    var serviceReady by remember { mutableStateOf(false) }
     var connectionLabel by remember { mutableStateOf("Bağlanıyor...") }
 
     fun changeMicrophone(enabled: Boolean) {
@@ -87,21 +101,39 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) changeMicrophone(true) else connectionLabel = "Mikrofon izni gerekli"
+        if (granted) {
+            RoomAudioSession.startForegroundService(context, roomName)
+            changeMicrophone(true)
+        } else connectionLabel = "Mikrofon izni gerekli"
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        RoomAudioSession.startForegroundService(context, roomName)
+        serviceReady = true
+        if (!granted) connectionLabel = "Bildirim izni kapalı; oda arka planda korunuyor"
     }
 
     LaunchedEffect(controller) {
-        runCatching { controller.connect() }
-            .onSuccess { connected = true; connectionLabel = "128 dinleyici" }
-            .onFailure { connectionLabel = it.message ?: "Bağlantı kurulamadı" }
+        val needsNotificationPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (needsNotificationPermission) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        else {
+            RoomAudioSession.startForegroundService(context, roomName)
+            serviceReady = true
+        }
     }
-    DisposableEffect(controller) { onDispose { controller.close() } }
+    LaunchedEffect(controller, serviceReady) {
+        if (serviceReady) {
+            runCatching { RoomAudioSession.ensureConnected(context, roomName) }
+                .onSuccess { connected = true; connectionLabel = (backendState?.participantCount ?: 1).toString() + " dinleyici" }
+                .onFailure { connectionLabel = it.message ?: "Bağlantı kurulamadı" }
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { scope.launch { controller.leaveAndDisconnect(); onBack() } }) { Text("‹ Keşfet") }
+                TextButton(onClick = { scope.launch { RoomAudioSession.leaveAndStop(context); onBack() } }) { Text("‹ Keşfet") }
                 Spacer(Modifier.weight(1f))
                 Text(connectionLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
@@ -139,14 +171,12 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
                             scope.launch {
                                 when {
                                     selectedSeatId == seat.id -> runCatching { controller.leaveSeat() }.onSuccess {
-                                        selectedSeatId = null
                                         microphoneOn = false
                                     }.onFailure { connectionLabel = it.message ?: "Koltuktan ayrılamadı" }
                                     seat.name == null -> runCatching {
                                         if (selectedSeatId != null) controller.leaveSeat()
                                         controller.claimSeat(seat.id)
                                     }.onSuccess {
-                                        selectedSeatId = seat.id
                                         microphoneOn = false
                                     }.onFailure { connectionLabel = it.message ?: "Koltuğa çıkılamadı" }
                                 }
@@ -158,6 +188,11 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
         }
     }
 }
+
+private fun String.initials(): String = trim().split(Regex("\\s+")).take(2).joinToString("") { part ->
+    part.firstOrNull()?.uppercase() ?: ""
+}
+
 
 @Composable
 private fun RoomHeader() {
