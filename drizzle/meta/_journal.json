@@ -15,6 +15,13 @@
       "when": 1786896038562,
       "tag": "0001_condemned_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787326586000,
+      "tag": "0002_android_v01",
+      "breakpoints": true
     }
   ]
 }

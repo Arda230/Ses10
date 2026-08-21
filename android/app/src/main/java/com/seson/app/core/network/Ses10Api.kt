@@ -1,11 +1,15 @@
 package com.seson.app.core.network
 
+import android.content.Context
+import android.content.SharedPreferences
+
 import com.seson.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,11 +19,21 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-internal data class ApiRoom(val slug: String, val title: String, val category: String)
+internal data class ApiUser(val id: String, val username: String, val displayName: String, val avatarUrl: String?, val role: String, val balance: Int)
+internal data class ApiRoom(val slug: String, val title: String, val category: String, val owner: String, val status: String, val onlineCount: Int)
 internal data class RoomSeatOccupant(val identity: String, val name: String, val muted: Boolean)
 internal data class RoomSeatState(val id: Int, val locked: Boolean, val occupant: RoomSeatOccupant?)
+internal data class ApiMessage(val id: String, val userId: String?, val displayName: String, val body: String, val type: String, val createdAt: String)
+internal data class ApiParticipant(val userId: String, val identity: String, val name: String, val role: String, val seatId: Int?)
+internal data class HandRaise(val userId: String, val identity: String, val name: String)
+internal data class GiftInfo(val id: String, val name: String, val price: Int, val assetIdentifier: String)
 internal data class RoomState(
     val seats: List<RoomSeatState>,
+    val messages: List<ApiMessage>,
+    val participants: List<ApiParticipant>,
+    val handRaises: List<HandRaise>,
+    val selfRole: String,
+    val closed: Boolean,
     val participantCount: Int,
     val selfIdentity: String,
     val selfSeatId: Int?,
@@ -28,7 +42,8 @@ internal class ApiHttpException(val status: Int, val code: String) : IOException
 internal data class LiveKitCredentials(val serverUrl: String, val token: String, val identity: String, val state: RoomState)
 
 internal object Ses10Api {
-    private val cookieJar = MemoryCookieJar()
+    private val cookieJar = PersistentCookieJar()
+    fun initialize(context: Context) = cookieJar.initialize(context.getSharedPreferences("ses10_session", Context.MODE_PRIVATE))
     private val client = OkHttpClient.Builder().cookieJar(cookieJar).build()
     private val eventClient = client.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
@@ -42,14 +57,27 @@ internal object Ses10Api {
         post("/api/auth/register", JSONObject().put("username", username).put("email", email).put("password", password)); Unit
     }
 
+    suspend fun me(): Result<ApiUser?> = runCatching {
+        val user = get("/api/auth/me").optJSONObject("user") ?: return@runCatching null
+        ApiUser(user.getString("id"), user.getString("username"), user.optString("displayName", user.getString("username")), user.optString("avatarUrl").takeIf { it.isNotBlank() }, user.optString("role", "user"), user.optInt("balance", 0))
+    }
+
+    suspend fun logout(): Result<Unit> = runCatching { post("/api/auth/logout", JSONObject()); cookieJar.clear(); Unit }
+
+    suspend fun createRoom(title: String, category: String, description: String = ""): Result<ApiRoom> = runCatching {
+        parseRoom(post("/api/rooms", JSONObject().put("title", title).put("category", category).put("description", description)).getJSONObject("room"))
+    }
+
     suspend fun rooms(): Result<List<ApiRoom>> = runCatching {
         val payload = get("/api/rooms")
         val array = payload.getJSONArray("rooms")
         List(array.length()) { index ->
             val room = array.getJSONObject(index)
-            ApiRoom(room.getString("slug"), room.getString("title"), room.getString("category"))
+            parseRoom(room)
         }
     }
+
+    private fun parseRoom(room: JSONObject) = ApiRoom(room.getString("slug"), room.getString("title"), room.getString("category"), room.optJSONObject("owner")?.optString("username").orEmpty(), room.optString("status", "open"), room.optInt("onlineCount", 0))
 
     suspend fun liveKitToken(roomName: String): LiveKitCredentials {
         val payload = post("/api/livekit/token", JSONObject().put("roomName", roomName))
@@ -80,6 +108,18 @@ internal object Ses10Api {
 
     suspend fun setMuted(roomName: String, identity: String, muted: Boolean): RoomState =
         parseRoomState(post("/api/rooms/$roomName/mute", JSONObject().put("targetIdentity", identity).put("muted", muted)))
+
+    suspend fun sendMessage(roomName: String, text: String): ApiMessage { val item = post("/api/rooms/$roomName/messages", JSONObject().put("body", text)).getJSONObject("message"); return parseMessage(item) }
+    suspend fun gifts(): Pair<List<GiftInfo>, Int> { val payload = get("/api/gifts"); val items = payload.getJSONArray("gifts"); return List(items.length()) { val gift = items.getJSONObject(it); GiftInfo(gift.getString("id"), gift.getString("name"), gift.getInt("price"), gift.getString("assetIdentifier")) } to payload.getInt("balance") }
+    suspend fun sendGift(roomName: String, receiverUserId: String, giftId: String, requestId: String): Int = post("/api/rooms/$roomName/gifts", JSONObject().put("receiverUserId", receiverUserId).put("giftId", giftId).put("quantity", 1).put("requestId", requestId)).getInt("balance")
+    suspend fun raiseHand(roomName: String, raised: Boolean): RoomState = parseRoomState(post("/api/rooms/$roomName/hand-raise", JSONObject().put("raised", raised)))
+    suspend fun resolveHand(roomName: String, identity: String, accepted: Boolean): RoomState = parseRoomState(post("/api/rooms/$roomName/hand-raise/resolve", JSONObject().put("targetIdentity", identity).put("accepted", accepted)))
+    suspend fun setSeatLock(roomName: String, seatId: Int, locked: Boolean): RoomState = parseRoomState(post("/api/rooms/$roomName/seats/$seatId/lock", JSONObject().put("locked", locked)))
+    suspend fun removeFromSeat(roomName: String, identity: String): RoomState = parseRoomState(request("/api/rooms/$roomName/seat", "DELETE", JSONObject().put("targetIdentity", identity)))
+    suspend fun kick(roomName: String, identity: String): RoomState = parseRoomState(post("/api/rooms/$roomName/kick", JSONObject().put("targetIdentity", identity)))
+    suspend fun setRole(roomName: String, userId: String, role: String): RoomState = parseRoomState(post("/api/rooms/$roomName/roles", JSONObject().put("targetUserId", userId).put("role", role)))
+    suspend fun closeRoom(roomName: String) { post("/api/rooms/$roomName/close", JSONObject()) }
+    suspend fun publicProfile(userId: String): ApiUser { val user = get("/api/users/$userId").getJSONObject("user"); return ApiUser(user.getString("id"), user.getString("username"), user.getString("displayName"), user.optString("avatarUrl").takeIf { it.isNotBlank() }, user.optString("role", "user"), 0) }
 
     suspend fun leaveRoom(roomName: String) {
         request("/api/rooms/$roomName/participants/me", "DELETE", null)
@@ -114,9 +154,16 @@ internal object Ses10Api {
     }
 }
 
+internal fun parseMessage(item: JSONObject) = ApiMessage(item.getString("id"), item.optString("userId").takeIf { it.isNotBlank() && it != "null" }, item.getString("displayName"), item.getString("body"), item.getString("type"), item.getString("createdAt"))
+
 internal fun parseRoomState(payload: JSONObject): RoomState {
     val seats = payload.getJSONArray("seats")
     return RoomState(
+        messages = payload.optJSONArray("messages")?.let { array -> List(array.length()) { parseMessage(array.getJSONObject(it)) } }.orEmpty(),
+        participants = payload.optJSONArray("participants")?.let { array -> List(array.length()) { val p = array.getJSONObject(it); ApiParticipant(p.getString("userId"), p.getString("identity"), p.getString("name"), p.getString("role"), p.optInt("seatId").takeIf { _ -> !p.isNull("seatId") }) } }.orEmpty(),
+        handRaises = payload.optJSONArray("handRaises")?.let { array -> List(array.length()) { val h = array.getJSONObject(it); HandRaise(h.getString("userId"), h.getString("identity"), h.getString("name")) } }.orEmpty(),
+        selfRole = payload.getJSONObject("self").getString("role"),
+        closed = payload.optBoolean("closed", false),
         seats = List(seats.length()) { index ->
             val seat = seats.getJSONObject(index)
             val occupant = seat.optJSONObject("occupant")?.let {
@@ -130,12 +177,16 @@ internal fun parseRoomState(payload: JSONObject): RoomState {
     )
 }
 
-private class MemoryCookieJar : CookieJar {
+private class PersistentCookieJar : CookieJar {
+    private var preferences: SharedPreferences? = null
+    fun initialize(value: SharedPreferences) = synchronized(cookies) { preferences = value; cookies.clear(); value.getStringSet("cookies", emptySet()).orEmpty().mapNotNullTo(cookies) { Cookie.parse(BuildConfig.API_BASE_URL.toHttpUrl(), it) } }
+    fun clear() = synchronized(cookies) { cookies.clear(); preferences?.edit()?.remove("cookies")?.apply() }
     private val cookies = mutableListOf<Cookie>()
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         synchronized(this.cookies) {
             this.cookies.removeAll { old -> cookies.any { it.name == old.name && it.domain == old.domain && it.path == old.path } }
             this.cookies.addAll(cookies)
+            preferences?.edit()?.putStringSet("cookies", this.cookies.map { it.toString() }.toSet())?.apply()
         }
     }
     override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(cookies) {

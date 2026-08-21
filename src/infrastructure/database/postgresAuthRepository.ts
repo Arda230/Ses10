@@ -28,8 +28,11 @@ export class PostgresAuthRepository implements AuthRepository {
     const [row] = await this.db.select({
       id: schema.users.id,
       username: schema.users.username,
+      displayName: schema.users.displayName,
+      avatarUrl: schema.users.avatarUrl,
       email: schema.users.email,
       role: schema.users.role,
+      balance: schema.users.balance,
       status: schema.users.status,
     }).from(schema.sessions).innerJoin(schema.users, eq(schema.sessions.userId, schema.users.id)).where(and(
       eq(schema.sessions.tokenHash, tokenHash),
@@ -39,7 +42,7 @@ export class PostgresAuthRepository implements AuthRepository {
     )).limit(1);
     if (!row || row.status !== "active") return undefined;
     await this.db.update(schema.sessions).set({ lastSeenAt: now }).where(eq(schema.sessions.tokenHash, tokenHash));
-    return { id: row.id, username: row.username, email: row.email, role: row.role };
+    return { id: row.id, username: row.username, displayName: row.displayName, avatarUrl: row.avatarUrl, email: row.email, role: row.role, balance: row.balance };
   }
 
   async revokeSession(tokenHash: string, now: Date): Promise<void> {
@@ -55,9 +58,12 @@ function toEntity(record: schema.UserRecord): UserEntity {
   return {
     id: record.id,
     username: record.username,
+    displayName: record.displayName,
+    avatarUrl: record.avatarUrl,
     email: record.email,
     passwordHash: record.passwordHash,
     role: record.role,
+    balance: record.balance,
     status: record.status,
   };
 }

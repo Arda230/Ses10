@@ -1,0 +1,13 @@
+ALTER TABLE "users" ADD COLUMN "display_name" varchar(80) DEFAULT 'Ses10 Kullanıcısı' NOT NULL;
+ALTER TABLE "users" ADD COLUMN "avatar_url" varchar(500);
+ALTER TABLE "users" ADD COLUMN "balance" integer DEFAULT 1000 NOT NULL;
+ALTER TABLE "users" ADD CONSTRAINT "users_balance_nonnegative" CHECK ("balance" >= 0);
+CREATE TABLE "room_seats" ("room_id" uuid NOT NULL REFERENCES "rooms"("id") ON DELETE cascade,"seat_id" integer NOT NULL CHECK ("seat_id" BETWEEN 1 AND 12),"locked" integer DEFAULT 0 NOT NULL CHECK ("locked" IN (0,1)),"updated_at" timestamp with time zone DEFAULT now() NOT NULL);
+CREATE UNIQUE INDEX "room_seats_room_seat_unique" ON "room_seats" ("room_id","seat_id");
+CREATE TABLE "room_messages" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,"room_id" uuid NOT NULL REFERENCES "rooms"("id") ON DELETE cascade,"user_id" uuid REFERENCES "users"("id") ON DELETE set null,"display_name" varchar(80) NOT NULL,"body" varchar(500) NOT NULL,"type" varchar(24) DEFAULT 'user' NOT NULL,"created_at" timestamp with time zone DEFAULT now() NOT NULL);
+CREATE INDEX "room_messages_room_created_idx" ON "room_messages" ("room_id","created_at");
+CREATE TABLE "gift_catalog" ("id" varchar(32) PRIMARY KEY,"name" varchar(80) NOT NULL,"price" integer NOT NULL CHECK ("price">0),"asset_identifier" varchar(80) NOT NULL,"active" integer DEFAULT 1 NOT NULL CHECK ("active" IN (0,1)));
+CREATE TABLE "gift_transactions" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,"request_id" uuid NOT NULL,"room_id" uuid NOT NULL REFERENCES "rooms"("id") ON DELETE restrict,"sender_user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE restrict,"receiver_user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE restrict,"gift_id" varchar(32) NOT NULL REFERENCES "gift_catalog"("id") ON DELETE restrict,"quantity" integer DEFAULT 1 NOT NULL CHECK ("quantity">0),"total_cost" integer NOT NULL CHECK ("total_cost">0),"created_at" timestamp with time zone DEFAULT now() NOT NULL);
+CREATE UNIQUE INDEX "gift_transactions_sender_request_unique" ON "gift_transactions" ("sender_user_id","request_id");
+CREATE INDEX "gift_transactions_room_created_idx" ON "gift_transactions" ("room_id","created_at");
+INSERT INTO "gift_catalog" ("id","name","price","asset_identifier") VALUES ('star','Yıldız',10,'star'),('crystal','Kristal',25,'crystal'),('crown','Taç',50,'crown'),('melody','Melodi',75,'melody'),('rocket','Roket',100,'rocket'),('signature','İmza',150,'signature') ON CONFLICT ("id") DO NOTHING;

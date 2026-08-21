@@ -39,9 +39,12 @@ test("seat collision, lock, leave and host removal are enforced", () => {
   const first = store.join("test-room", "user-one", "user-1", "Birinci", "listener");
   const second = store.join("test-room", "user-two", "user-2", "İkinci", "listener");
   assert.equal(store.snapshot("test-room", first.identity).self.role, "listener");
-  store.claimSeat("test-room", first.identity, 1);
-  assert.throws(() => store.claimSeat("test-room", second.identity, 1), /OCCUPIED/);
-  assert.throws(() => store.claimSeat("test-room", first.identity, 2), /ALREADY_SEATED/);
+  assert.throws(() => store.claimSeat("test-room", first.identity, 1), /FORBIDDEN/);
+  store.claimSeat("test-room", host.identity, 1);
+  assert.throws(() => store.claimSeat("test-room", second.identity, 1), /FORBIDDEN/);
+  store.leaveSeat("test-room", host.identity);
+  store.claimSeat("test-room", first.identity, 2);
+  assert.throws(() => store.claimSeat("test-room", first.identity, 3), /ALREADY_SEATED/);
   store.setSeatLock("test-room", host.identity, 2, true);
   assert.throws(() => store.claimSeat("test-room", second.identity, 2), /LOCKED/);
   store.leaveSeat("test-room", host.identity, first.identity);
@@ -97,3 +100,24 @@ class SnapshotStream extends EventEmitter {
     return JSON.parse(data) as { seats: Array<{ occupant: null | { identity: string; muted: boolean } }> };
   }
 }
+
+test("hand raise accept/reject, kick cleanup and room close invariants", () => {
+  const store = new RoomStateStore();
+  const host = store.join("moderation-room", "host-user", "host", "Host", "host");
+  const first = store.join("moderation-room", "first-user", "first", "Bir", "listener");
+  const second = store.join("moderation-room", "second-user", "second", "İki", "listener");
+  store.raiseHand("moderation-room", first.identity, true);
+  assert.equal(store.snapshot("moderation-room", host.identity).handRaises.length, 1);
+  store.resolveHand("moderation-room", host.identity, first.identity, true);
+  assert.equal(store.snapshot("moderation-room", first.identity).self.seatId, 2);
+  store.raiseHand("moderation-room", second.identity, true);
+  store.resolveHand("moderation-room", host.identity, second.identity, false);
+  assert.equal(store.snapshot("moderation-room", host.identity).handRaises.length, 0);
+  store.raiseHand("moderation-room", second.identity, true);
+  store.kick("moderation-room", host.identity, second.identity);
+  assert.equal(store.participant("moderation-room", second.identity), undefined);
+  assert.equal(store.snapshot("moderation-room", host.identity).handRaises.length, 0);
+  assert.throws(() => store.join("moderation-room", second.userId, second.identity, second.name, "listener"), /FORBIDDEN/);
+  store.closeRoom("moderation-room", host.identity);
+  assert.equal(store.snapshot("moderation-room", host.identity).closed, true);
+});

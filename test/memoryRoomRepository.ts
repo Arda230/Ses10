@@ -27,4 +27,12 @@ export class MemoryRoomRepository implements RoomRepository {
     if (room.owner.id !== actorUserId || room.owner.id === targetUserId) return Promise.reject(new Error("FORBIDDEN"));
     this.roles.set(`${slug}:${targetUserId}`, role); return Promise.resolve({ room, role });
   }
+  listMessages() { return Promise.resolve([]); }
+  addMessage(slug: string, user: PublicUser, body: string, type = "user") { return Promise.resolve({ id: "message-1", roomId: this.rooms.get(slug)?.id ?? "", userId: user.id, displayName: user.displayName ?? user.username, body, type, createdAt: new Date().toISOString() }); }
+  listGifts() { return Promise.resolve([]); }
+  sendGift() { return Promise.reject(new Error("NOT_IMPLEMENTED")); }
+  publicProfile() { return Promise.resolve(undefined); }
+  loadSeatLocks() { return Promise.resolve([]); }
+  setSeatLock() { return Promise.resolve(); }
+  closeRoom() { return Promise.resolve(true); }
 }

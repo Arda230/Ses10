@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ServerResponse } from "node:http";
 
-import type { RoomRole } from "../application/rooms/roomTypes.js";
+import type { RoomMessage, RoomRole } from "../application/rooms/roomTypes.js";
 
 export interface SeatState {
   id: number;
@@ -18,6 +18,9 @@ export interface ParticipantSnapshot {
 }
 
 export interface RoomSnapshot {
+  messages: RoomMessage[];
+  handRaises: Array<{ userId: string; identity: string; name: string; requestedAt: string }>;
+  closed: boolean;
   roomName: string;
   revision: number;
   seats: SeatState[];
@@ -37,6 +40,10 @@ interface ParticipantState {
 }
 
 interface InternalRoom {
+  kickedUserIds: Set<string>;
+  messages: RoomMessage[];
+  handRaises: Map<string, { userId: string; identity: string; name: string; requestedAt: string }>;
+  closed: boolean;
   name: string;
   revision: number;
   seats: SeatState[];
@@ -51,6 +58,7 @@ export class RoomStateStore {
 
   join(roomName: string, userId: string, identity: string, name: string, role: RoomRole) {
     const room = this.#room(roomName);
+    if (room.kickedUserIds.has(userId)) throw new Error("FORBIDDEN");
     const existing = room.participants.get(identity);
     if (existing) {
       existing.name = name;
@@ -74,6 +82,12 @@ export class RoomStateStore {
     return this.#room(roomName).participants.get(session.identity);
   }
 
+  participantCount(roomName: string): number {
+    return this.#rooms.get(roomName)?.participants.size ?? 0;
+  }
+
+  isKicked(roomName: string, userId: string): boolean { return this.#rooms.get(roomName)?.kickedUserIds.has(userId) ?? false; }
+
   participant(roomName: string, identity: string) {
     return this.#room(roomName).participants.get(identity);
   }
@@ -87,8 +101,15 @@ export class RoomStateStore {
     const participant = room.participants.get(identity);
     if (!participant) throw new Error("UNAUTHORIZED");
     const participants = [...room.participants.values()].map((item) => this.#participant(room, item));
-    return { roomName, revision: room.revision, seats: room.seats, participantCount: participants.length, participants, self: this.#participant(room, participant) };
+    return { roomName, revision: room.revision, messages: room.messages, handRaises: [...room.handRaises.values()], closed: room.closed, seats: room.seats, participantCount: participants.length, participants, self: this.#participant(room, participant) };
   }
+
+  hydrate(roomName: string, messages: RoomMessage[], lockedSeatIds: number[]) { const room = this.#room(roomName); if (room.messages.length === 0) room.messages = messages; for (const seat of room.seats) seat.locked = lockedSeatIds.includes(seat.id); }
+  appendMessage(roomName: string, message: RoomMessage) { const room = this.#room(roomName); if (!room.messages.some((item) => item.id === message.id)) { room.messages = [...room.messages.slice(-99), message]; this.#changed(roomName); } }
+  raiseHand(roomName: string, identity: string, raised: boolean) { const room = this.#room(roomName); const participant = room.participants.get(identity); if (!participant) throw new Error("NOT_FOUND"); if (raised) room.handRaises.set(identity, { userId: participant.userId, identity, name: participant.name, requestedAt: new Date().toISOString() }); else room.handRaises.delete(identity); this.#changed(roomName); }
+  resolveHand(roomName: string, actorIdentity: string, targetIdentity: string, accepted: boolean, seatId?: number) { const room = this.#room(roomName); const actor = room.participants.get(actorIdentity); if (!actor || !canModerate(actor.role)) throw new Error("FORBIDDEN"); if (!room.handRaises.has(targetIdentity)) throw new Error("NOT_FOUND"); if (accepted) { const target = room.participants.get(targetIdentity); if (!target) throw new Error("NOT_FOUND"); const targetSeat = seatId ?? room.seats.find((seat) => seat.id !== 1 && !seat.locked && !seat.occupant)?.id; if (!targetSeat) throw new Error("NO_AVAILABLE_SEAT"); this.claimSeat(roomName, targetIdentity, targetSeat); } room.handRaises.delete(targetIdentity); this.#changed(roomName); }
+  kick(roomName: string, actorIdentity: string, targetIdentity: string) { const room = this.#room(roomName); const actor = room.participants.get(actorIdentity); const target = room.participants.get(targetIdentity); if (!actor || !canModerate(actor.role) || !target) throw new Error("FORBIDDEN"); if (target.role === "host") throw new Error("FORBIDDEN"); room.kickedUserIds.add(target.userId); this.disconnect(roomName, targetIdentity); }
+  closeRoom(roomName: string, actorIdentity: string) { const room = this.#room(roomName); const actor = room.participants.get(actorIdentity); if (!actor || actor.role !== "host") throw new Error("FORBIDDEN"); room.closed = true; this.#changed(roomName); }
 
   setRole(roomName: string, actorIdentity: string, targetUserId: string, role: Exclude<RoomRole, "host">) {
     const room = this.#room(roomName);
@@ -107,7 +128,8 @@ export class RoomStateStore {
     const participant = room.participants.get(identity);
     const seat = room.seats[seatId - 1];
     if (!participant || !seat) throw new Error("NOT_FOUND");
-    if (seat.locked && participant.role === "listener") throw new Error("LOCKED");
+    if (seat.locked) throw new Error("LOCKED");
+    if (seat.id === 1 && participant.role !== "host") throw new Error("FORBIDDEN");
     if (seat.occupant && seat.occupant.identity !== identity) throw new Error("OCCUPIED");
     const current = room.seats.find((item) => item.occupant?.identity === identity);
     if (current && current.id !== seatId) throw new Error("ALREADY_SEATED");
@@ -172,6 +194,7 @@ export class RoomStateStore {
     const seat = room.seats.find((item) => item.occupant?.identity === identity);
     if (seat) seat.occupant = null;
     room.participants.delete(identity);
+    room.handRaises.delete(identity);
     this.#sessions.delete(participant.sessionId);
     if (participant.disconnectTimer) clearTimeout(participant.disconnectTimer);
     for (const stream of participant.streams) stream.end();
@@ -199,7 +222,7 @@ export class RoomStateStore {
   }
   #room(name: string): InternalRoom {
     let room = this.#rooms.get(name);
-    if (!room) { room = { name, revision: 0, seats: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, locked: name === "production-test-odasi" && index === 5, occupant: null })), participants: new Map() }; this.#rooms.set(name, room); }
+    if (!room) { room = { name, revision: 0, messages: [], handRaises: new Map(), kickedUserIds: new Set(), closed: false, seats: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, locked: name === "production-test-odasi" && index === 5, occupant: null })), participants: new Map() }; this.#rooms.set(name, room); }
     return room;
   }
 }

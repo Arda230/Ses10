@@ -59,7 +59,15 @@ export class AuthService {
 }
 
 function publicUser(user: UserEntity): PublicUser {
-  return { id: user.id, username: user.username, email: user.email, role: user.role };
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    ...(user.displayName !== undefined ? { displayName: user.displayName } : {}),
+    ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
+    ...(user.balance !== undefined ? { balance: user.balance } : {}),
+  };
 }
 
 function isUniqueViolation(error: unknown): boolean {

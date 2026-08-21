@@ -9,11 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,7 +29,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -153,14 +149,6 @@ private fun AuthPrimaryButton(text: String, enabled: Boolean, onClick: () -> Uni
 @Composable
 private fun AuthLayout(title: String, subtitle: String, content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize().background(AuthBackground)) {
-        Box(
-            Modifier.align(Alignment.TopEnd).offset(x = 72.dp, y = (-58).dp).size(230.dp)
-                .blur(78.dp).background(AuthPrimary.copy(alpha = 0.20f), CircleShape),
-        )
-        Box(
-            Modifier.align(Alignment.BottomStart).offset(x = (-76).dp, y = 74.dp).size(210.dp)
-                .blur(82.dp).background(AuthAccent.copy(alpha = 0.12f), CircleShape),
-        )
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.Center,

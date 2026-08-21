@@ -1,8 +1,11 @@
 export interface PublicUser {
   id: string;
   username: string;
+  displayName?: string | undefined;
+  avatarUrl?: string | null | undefined;
   email: string;
   role: "user" | "admin";
+  balance?: number | undefined;
 }
 
 export interface AuthenticatedSession {

@@ -51,9 +51,11 @@ internal class LiveKitRoomController(context: Context, private val roomName: Str
             logNetwork("capabilities-changed", network, capabilities)
     }
     private val mutableRoomState = MutableStateFlow<RoomState?>(null)
+    private val mutableTerminalMessage = MutableStateFlow<String?>(null)
     private val mutableLiveKitParticipants = MutableStateFlow<Set<String>>(emptySet())
     private val mutableLiveKitMicrophones = MutableStateFlow<Set<String>>(emptySet())
     val roomState: StateFlow<RoomState?> = mutableRoomState.asStateFlow()
+    val terminalMessage: StateFlow<String?> = mutableTerminalMessage.asStateFlow()
     val liveKitParticipants: StateFlow<Set<String>> = mutableLiveKitParticipants.asStateFlow()
     val liveKitMicrophones: StateFlow<Set<String>> = mutableLiveKitMicrophones.asStateFlow()
 
@@ -108,6 +110,19 @@ internal class LiveKitRoomController(context: Context, private val roomName: Str
     suspend fun claimSeat(seatId: Int) {
         updateAuthoritativeState { Ses10Api.claimSeat(roomName, seatId) }
     }
+
+    suspend fun sendMessage(text: String) = Ses10Api.sendMessage(roomName, text)
+    suspend fun gifts() = Ses10Api.gifts()
+    suspend fun sendGift(receiverUserId: String, giftId: String, requestId: String) = Ses10Api.sendGift(roomName, receiverUserId, giftId, requestId)
+    suspend fun raiseHand(raised: Boolean) = updateAuthoritativeState { Ses10Api.raiseHand(roomName, raised) }
+    suspend fun resolveHand(identity: String, accepted: Boolean) = updateAuthoritativeState { Ses10Api.resolveHand(roomName, identity, accepted) }
+    suspend fun setSeatLock(seatId: Int, locked: Boolean) = updateAuthoritativeState { Ses10Api.setSeatLock(roomName, seatId, locked) }
+    suspend fun removeFromSeat(identity: String) = updateAuthoritativeState { Ses10Api.removeFromSeat(roomName, identity) }
+    suspend fun muteParticipant(identity: String) = updateAuthoritativeState { Ses10Api.setMuted(roomName, identity, true) }
+    suspend fun kick(identity: String) = updateAuthoritativeState { Ses10Api.kick(roomName, identity) }
+    suspend fun setRole(userId: String, role: String) = updateAuthoritativeState { Ses10Api.setRole(roomName, userId, role) }
+    suspend fun closeRoom() = Ses10Api.closeRoom(roomName)
+    suspend fun publicProfile(userId: String) = Ses10Api.publicProfile(userId)
 
     suspend fun leaveSeat() {
         room.localParticipant.setMicrophoneEnabled(false)
@@ -260,6 +275,7 @@ internal class LiveKitRoomController(context: Context, private val roomName: Str
                         }
                     }
                 }.onFailure { error ->
+                    if (error is ApiHttpException && error.status == 403) { mutableTerminalMessage.value = "Odadan çıkarıldın"; closed = true; room.disconnect(); return@onFailure }
                     if (error is ApiHttpException && error.status == 401) {
                         Log.e(TAG, "diagnostic SSE UNAUTHORIZED while LiveKit roomState=" + room.state +
                             " identity=" + identity + "; possible server-side participant cleanup", error)

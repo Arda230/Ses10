@@ -23,6 +23,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -36,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.seson.app.core.network.Ses10Api
+import kotlinx.coroutines.launch
 
 private enum class HomeTab(val label: String, val symbol: String) {
     Discover("Keşfet", "◉"), Messages("Mesajlar", "✦"), Profile("Profil", "●"),
@@ -68,18 +75,22 @@ private val MutedText = Color(0xFF918BA4)
 private val LiveGreen = Color(0xFF62E8C9)
 
 @Composable
-fun HomeScreen(onOpenRoom: (String) -> Unit) {
+fun HomeScreen(onOpenRoom: (String) -> Unit, onLogout: () -> Unit) {
     var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Discover) }
+    var showCreateRoom by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     Scaffold(
         containerColor = PageBackground,
+        floatingActionButton = { if (selectedTab == HomeTab.Discover) FloatingActionButton(onClick = { showCreateRoom = true }) { Text("+") } },
         bottomBar = { PremiumBottomBar(selectedTab) { selectedTab = it } },
     ) { padding ->
         when (selectedTab) {
             HomeTab.Discover -> DiscoverScreen(onOpenRoom, Modifier.fillMaxSize().padding(padding))
             HomeTab.Messages -> MessagesScreen(Modifier.fillMaxSize().padding(padding))
-            HomeTab.Profile -> ProfileTab(Modifier.fillMaxSize().padding(padding))
+            HomeTab.Profile -> ProfileTab(onLogout, Modifier.fillMaxSize().padding(padding))
         }
     }
+    if (showCreateRoom) CreateRoomDialog(onDismiss = { showCreateRoom = false }, onCreate = { title, description -> scope.launch { Ses10Api.createRoom(title, "Sohbet", description).onSuccess { showCreateRoom = false; onOpenRoom(it.slug) } } })
 }
 
 @Composable
@@ -120,7 +131,7 @@ private fun DiscoverScreen(onOpenRoom: (String) -> Unit, modifier: Modifier = Mo
             .onSuccess { apiRooms ->
                 rooms = apiRooms.mapIndexed { index, room ->
                     val accents = listOf(Color(0xFFA879FF), Color(0xFF4B9CFF), Color(0xFF58DFC3), Color(0xFFF26FC5))
-                    DiscoverRoom(room.slug, room.title, room.category.uppercase(), 1, "Canlı oda", accents[index % accents.size])
+                    DiscoverRoom(room.slug, room.title, room.category.uppercase(), room.onlineCount, room.owner.ifBlank { "Oda sahibi" }, accents[index % accents.size])
                 }
                 loading = false
             }
@@ -327,18 +338,39 @@ private fun MessagesScreen(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ProfileTab(modifier: Modifier = Modifier) {
+private fun ProfileTab(onLogout: () -> Unit, modifier: Modifier = Modifier) {
+    var user by remember { mutableStateOf<com.seson.app.core.network.ApiUser?>(null) }
+    LaunchedEffect(Unit) { user = Ses10Api.me().getOrNull() }
     Column(modifier.background(PageBackground).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Profil", Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = .2f), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f))) {
             Text("S10", Modifier.padding(28.dp), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black)
         }
-        Text("Ses10 Kullanıcısı", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(user?.displayName ?: user?.username ?: "Ses10 Kullanıcısı", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("@${user?.username.orEmpty()} · ID ${user?.id.orEmpty()}", color = MutedText)
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = CardBackground)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Profil alanın hazır", fontWeight = FontWeight.SemiBold)
-                Text("Gerçek kullanıcı bilgileri auth bağlantısından sonra gösterilecek.", color = MutedText)
+                Text("Rol: ${user?.role ?: "user"} · Bakiye: ${user?.balance ?: 0}", color = MutedText)
             }
         }
+        Button(onClick = onLogout, modifier = Modifier.fillMaxWidth()) { Text("Çıkış yap") }
     }
+}
+
+@Composable
+private fun CreateRoomDialog(onDismiss: () -> Unit, onCreate: (String, String) -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Yeni oda oluştur") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(title, { title = it }, label = { Text("Oda adı") }, singleLine = true)
+            OutlinedTextField(description, { description = it }, label = { Text("Açıklama (opsiyonel)") })
+            Text("Görünürlük: Herkese açık", color = MutedText, style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { TextButton(onClick = { onCreate(title.trim(), description.trim()) }, enabled = title.trim().length >= 3) { Text("Oluştur") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Vazgeç") } },
+    )
 }

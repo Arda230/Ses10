@@ -1,4 +1,4 @@
-import { index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const accountRole = pgEnum("account_role", ["user", "admin"]);
 export const accountStatus = pgEnum("account_status", ["active", "disabled"]);
@@ -10,10 +10,13 @@ export const users = pgTable("users", {
   username: varchar("username", { length: 40 }).notNull(),
   usernameNormalized: varchar("username_normalized", { length: 40 }).notNull(),
   email: varchar("email", { length: 254 }).notNull(),
+  displayName: varchar("display_name", { length: 80 }).notNull().default("Ses10 Kullanıcısı"),
+  avatarUrl: varchar("avatar_url", { length: 500 }),
   emailNormalized: varchar("email_normalized", { length: 254 }).notNull(),
   passwordHash: text("password_hash").notNull(),
   role: accountRole("role").notNull().default("user"),
   status: accountStatus("status").notNull().default("active"),
+  balance: integer("balance").notNull().default(1000),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -64,6 +67,22 @@ export const roomMembers = pgTable("room_members", {
   index("room_members_room_id_idx").on(table.roomId),
   index("room_members_user_id_idx").on(table.userId),
 ]);
+
+export const roomSeats = pgTable("room_seats", {
+  roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }), seatId: integer("seat_id").notNull(), locked: integer("locked").notNull().default(0), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("room_seats_room_seat_unique").on(table.roomId, table.seatId)]);
+
+export const roomMessages = pgTable("room_messages", {
+  id: uuid("id").primaryKey().defaultRandom(), roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }), userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }), displayName: varchar("display_name", { length: 80 }).notNull(), body: varchar("body", { length: 500 }).notNull(), type: varchar("type", { length: 24 }).notNull().default("user"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("room_messages_room_created_idx").on(table.roomId, table.createdAt)]);
+
+export const giftCatalog = pgTable("gift_catalog", {
+  id: varchar("id", { length: 32 }).primaryKey(), name: varchar("name", { length: 80 }).notNull(), price: integer("price").notNull(), assetIdentifier: varchar("asset_identifier", { length: 80 }).notNull(), active: integer("active").notNull().default(1),
+});
+
+export const giftTransactions = pgTable("gift_transactions", {
+  id: uuid("id").primaryKey().defaultRandom(), requestId: uuid("request_id").notNull(), roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "restrict" }), senderUserId: uuid("sender_user_id").notNull().references(() => users.id, { onDelete: "restrict" }), receiverUserId: uuid("receiver_user_id").notNull().references(() => users.id, { onDelete: "restrict" }), giftId: varchar("gift_id", { length: 32 }).notNull().references(() => giftCatalog.id, { onDelete: "restrict" }), quantity: integer("quantity").notNull().default(1), totalCost: integer("total_cost").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("gift_transactions_sender_request_unique").on(table.senderUserId, table.requestId), index("gift_transactions_room_created_idx").on(table.roomId, table.createdAt)]);
 
 export type UserRecord = typeof users.$inferSelect;
 export type NewUserRecord = typeof users.$inferInsert;

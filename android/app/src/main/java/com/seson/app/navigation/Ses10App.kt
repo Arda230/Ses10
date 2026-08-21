@@ -2,6 +2,7 @@ package com.seson.app.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -13,10 +14,12 @@ import com.seson.app.feature.auth.RegisterScreen
 import com.seson.app.feature.home.HomeScreen
 import com.seson.app.feature.room.RoomScreen
 import com.seson.app.feature.splash.SplashScreen
+import kotlinx.coroutines.launch
 
 @Composable
 fun Ses10App() {
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
     val openHome = {
         navController.navigate(Destination.Home.route) {
             popUpTo(Destination.Login.route) { inclusive = true }
@@ -24,7 +27,12 @@ fun Ses10App() {
     }
     NavHost(navController = navController, startDestination = Destination.Splash.route) {
         composable(Destination.Splash.route) {
-            SplashScreen { navController.navigate(Destination.Login.route) { popUpTo(Destination.Splash.route) { inclusive = true } } }
+            SplashScreen {
+                scope.launch {
+                    val target = if (Ses10Api.me().getOrNull() != null) Destination.Home.route else Destination.Login.route
+                    navController.navigate(target) { popUpTo(Destination.Splash.route) { inclusive = true } }
+                }
+            }
         }
         composable(Destination.Login.route) {
             LoginScreen(
@@ -41,7 +49,12 @@ fun Ses10App() {
             )
         }
         composable(Destination.Home.route) {
-            HomeScreen(onOpenRoom = { roomName -> navController.navigate("room/${Uri.encode(roomName)}") })
+            HomeScreen(onOpenRoom = { roomName -> navController.navigate("room/${Uri.encode(roomName)}") }, onLogout = {
+                scope.launch {
+                    Ses10Api.logout()
+                    navController.navigate(Destination.Login.route) { popUpTo(Destination.Home.route) { inclusive = true } }
+                }
+            })
         }
         composable(Destination.Room.route, arguments = listOf(navArgument("roomName") { type = NavType.StringType })) { entry ->
             RoomScreen(roomName = requireNotNull(entry.arguments?.getString("roomName")), onBack = { navController.popBackStack() })
