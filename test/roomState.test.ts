@@ -13,6 +13,14 @@ test("persisted room owner is host and room has twelve fixed seats", () => {
   assert.deepEqual(snapshot.seats.map((seat) => seat.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 });
 
+test("Production test room starts with Mic 6 locked", () => {
+  const store = new RoomStateStore();
+  const host = store.join("production-test-odasi", "host-user", "host-identity", "Host", "host");
+  const snapshot = store.snapshot("production-test-odasi", host.identity);
+  assert.equal(snapshot.seats.length, 12);
+  assert.deepEqual(snapshot.seats.filter((seat) => seat.locked).map((seat) => seat.id), [6]);
+});
+
 test("a participant is not removed after 30 seconds merely because it has no SSE subscription", (context) => {
   context.mock.timers.enable(["setTimeout"]);
   const disconnected: string[] = [];

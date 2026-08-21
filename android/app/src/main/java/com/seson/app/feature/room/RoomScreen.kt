@@ -3,9 +3,12 @@ package com.seson.app.feature.room
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -68,7 +71,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.seson.app.core.livekit.RoomAudioSession
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.sin
 
 private val RoomBackground = Color(0xFF060A16)
 private val RoomSurface = Color(0xFF11182A)
@@ -90,13 +96,15 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
     val liveKitParticipants by controller.liveKitParticipants.collectAsState()
     val liveKitMicrophones by controller.liveKitMicrophones.collectAsState()
     val seats = roomSeats.map { roomSeat ->
-        val occupant = backendState?.seats?.firstOrNull { it.id == roomSeat.id }?.occupant
-        if (occupant == null) roomSeat else MicSeat(
+        val backendSeat = backendState?.seats?.firstOrNull { it.id == roomSeat.id }
+        val occupant = backendSeat?.occupant
+        if (occupant == null) roomSeat.copy(locked = backendSeat?.locked ?: false) else MicSeat(
             id = roomSeat.id,
             name = occupant.name,
             initials = occupant.name.initials(),
             muted = occupant.muted || (occupant.identity in liveKitParticipants && occupant.identity !in liveKitMicrophones),
             speaking = !occupant.muted && occupant.identity in liveKitMicrophones,
+            locked = backendSeat.locked,
         )
     }
     val selectedSeatId = backendState?.selfSeatId
@@ -106,6 +114,7 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
     var serviceReady by remember { mutableStateOf(false) }
     var connectionLabel by remember { mutableStateOf("Bağlanıyor...") }
     var showGiftPanel by remember { mutableStateOf(false) }
+    var hostEntranceKey by remember(controller) { mutableStateOf(0) }
 
     fun changeMicrophone(enabled: Boolean) {
         if (selectedSeatId == null || !connected) return
@@ -208,7 +217,8 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
                             microphoneOn = microphoneOn,
                             modifier = Modifier.width(if (compact) 94.dp else 112.dp),
                             avatarSize = hostAvatarSize,
-                            onClick = { handleSeatClick(seats.first(), selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it }) },
+                            hostEntranceKey = hostEntranceKey,
+                            onClick = { handleSeatClick(seats.first(), selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it }) { hostEntranceKey += 1 } },
                         )
                         SeatCard(
                             seat = seats[11],
@@ -247,6 +257,7 @@ private fun handleSeatClick(
     scope: kotlinx.coroutines.CoroutineScope,
     setMicrophone: (Boolean) -> Unit,
     setStatus: (String) -> Unit,
+    onSeatClaimed: (Int) -> Unit = {},
 ) {
     if (!connected) return
     scope.launch {
@@ -255,7 +266,7 @@ private fun handleSeatClick(
             seat.name == null -> runCatching {
                 if (selectedSeatId != null) controller.leaveSeat()
                 controller.claimSeat(seat.id)
-            }.onSuccess { setMicrophone(false) }.onFailure { setStatus(it.message ?: "Koltuğa çıkılamadı") }
+            }.onSuccess { setMicrophone(false); onSeatClaimed(seat.id) }.onFailure { setStatus(it.message ?: "Koltuğa çıkılamadı") }
         }
     }
 }
@@ -304,7 +315,7 @@ private fun StageSeatRow(
 }
 
 @Composable
-private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, modifier: Modifier = Modifier, avatarSize: androidx.compose.ui.unit.Dp = 60.dp, onClick: () -> Unit) {
+private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, modifier: Modifier = Modifier, avatarSize: androidx.compose.ui.unit.Dp = 60.dp, hostEntranceKey: Int = 0, onClick: () -> Unit) {
     val occupied = seat.name != null || isOwnSeat
     val isHostSeat = seat.id == 1
     val shownName = if (isOwnSeat) "Sen" else seat.name
@@ -314,12 +325,41 @@ private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, m
     val accent = when { isHostSeat -> PremiumGold; isOwnSeat -> LiveCyan; speaking -> LiveCyan; occupied -> NeonViolet; else -> Color(0xFF536078) }
     val transition = rememberInfiniteTransition(label = "speaker-${seat.id}")
     val pulse by transition.animateFloat(.95f, 1.1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulse")
+    val entranceProgress = remember { Animatable(1f) }
+    val crownDrop = remember { Animatable(0f) }
+    val crownAlpha = remember { Animatable(1f) }
+    LaunchedEffect(hostEntranceKey) {
+        if (isHostSeat && isOwnSeat && hostEntranceKey > 0) {
+            entranceProgress.snapTo(0f)
+            crownDrop.snapTo(-1f)
+            crownAlpha.snapTo(0f)
+            coroutineScope {
+                launch { entranceProgress.animateTo(1f, tween(2_000, easing = FastOutSlowInEasing)) }
+                launch {
+                    crownDrop.animateTo(
+                        0f,
+                        keyframes {
+                            durationMillis = 1_050
+                            -.08f at 880 using FastOutSlowInEasing
+                            .07f at 950
+                            -.025f at 1_010
+                            0f at 1_050
+                        },
+                    )
+                }
+                launch { crownAlpha.animateTo(1f, tween(360, easing = FastOutSlowInEasing)) }
+            }
+        }
+    }
     Column(
         modifier.clickable(enabled = isOwnSeat || (seat.name == null && !seat.locked), onClick = onClick).padding(vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
+            if (isHostSeat && isOwnSeat && entranceProgress.value < 1f) {
+                HostEntranceGlow(avatarSize, entranceProgress.value)
+            }
             if (isHostSeat) Box(Modifier.size(avatarSize + 13.dp).shadow(18.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold).border(1.dp, PremiumGold.copy(alpha = .32f), CircleShape))
             if (speaking) Box(Modifier.size(avatarSize + 11.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 1.38f - pulse }.border(2.dp, LiveCyan.copy(alpha = .9f), CircleShape))
             if (!occupied && !isHostSeat) {
@@ -346,10 +386,88 @@ private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, m
             Surface(modifier = Modifier.align(Alignment.BottomEnd), shape = CircleShape, color = if (speaking) LiveCyan else Color(0xFF1A2235), border = BorderStroke(1.dp, RoomBackground)) {
                 Text(if (speaking) "♫" else if (seat.locked) "⌁" else seat.id.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = if (speaking) Color(0xFF08221D) else Color(0xFFF1EBF6), fontSize = 8.sp, fontWeight = FontWeight.Black)
             }
-            if (isHostSeat) Text("♛", Modifier.align(Alignment.TopCenter).graphicsLayer { translationY = -18f }.shadow(7.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold), color = PremiumGold, fontSize = 17.sp, fontWeight = FontWeight.Black)
+            if (isHostSeat) Text("♛", Modifier.align(Alignment.TopCenter).graphicsLayer { translationY = -18f + crownDrop.value * 24.dp.toPx(); alpha = crownAlpha.value; scaleX = .82f + crownAlpha.value * .18f; scaleY = scaleX }.shadow(7.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold), color = PremiumGold, fontSize = 17.sp, fontWeight = FontWeight.Black)
         }
         Text(shownName ?: if (isHostSeat) "Oda sahibi" else "Boş koltuk", color = if (occupied) Color(0xFFF8F4FC) else Color(0xFFAAB4C7), fontSize = 11.sp, fontWeight = if (isHostSeat || occupied) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(when { seat.locked -> "Kilitli"; !occupied -> "Mic ${seat.id}"; speaking -> "Konuşuyor"; shownMuted -> "Mic kapalı"; else -> "Mic açık" }, color = when { speaking -> LiveCyan; isHostSeat -> PremiumGold; else -> Color(0xFF7F8BA3) }, fontSize = 9.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun HostEntranceGlow(avatarSize: androidx.compose.ui.unit.Dp, progress: Float) {
+    Canvas(Modifier.size(avatarSize + 104.dp)) {
+        val avatarRadius = avatarSize.toPx() / 2f
+        val outerFade = (1f - progress).coerceIn(0f, 1f)
+        val landingFlash = (1f - abs(progress - .52f) / .11f).coerceIn(0f, 1f)
+        val outerExpansion = 8.dp.toPx() + 31.dp.toPx() * progress
+        val innerLife = (1f - progress / .72f).coerceIn(0f, 1f)
+        val innerPulse = sin(progress * 38f) * 2.4.dp.toPx() * innerLife
+
+        drawCircle(
+            color = PremiumGold.copy(alpha = landingFlash * .11f),
+            radius = avatarRadius + 15.dp.toPx() + landingFlash * 8.dp.toPx(),
+        )
+        drawCircle(
+            color = PremiumGold.copy(alpha = outerFade * .82f),
+            radius = avatarRadius + outerExpansion,
+            style = Stroke(width = (3.8f - progress * 2.2f).dp.toPx()),
+        )
+        drawCircle(
+            color = LiveCyan.copy(alpha = outerFade * .42f),
+            radius = avatarRadius + outerExpansion + 3.dp.toPx(),
+            style = Stroke(width = 1.2.dp.toPx()),
+        )
+        drawCircle(
+            color = LiveCyan.copy(alpha = innerLife * .72f),
+            radius = avatarRadius + 8.dp.toPx() + innerPulse,
+            style = Stroke(width = (1.5f + innerLife).dp.toPx()),
+        )
+        drawCircle(
+            color = PremiumGold.copy(alpha = landingFlash * .9f),
+            radius = avatarRadius + 6.dp.toPx() + landingFlash * 12.dp.toPx(),
+            style = Stroke(width = 2.dp.toPx()),
+        )
+
+        val directions = listOf(-.92f, -.76f, -.58f, -.4f, -.2f, .08f, .26f, .44f, .63f, .79f, .94f, .34f)
+        directions.forEachIndexed { index, direction ->
+            val delay = index * .018f
+            val particleProgress = ((progress - delay) / (1f - delay)).coerceIn(0f, 1f)
+            val staggeredFade = (1f - particleProgress).coerceIn(0f, 1f)
+            val sideDrift = direction * (avatarRadius + 18.dp.toPx()) * (0.72f + particleProgress * .72f)
+            val downwardDrift = -15.dp.toPx() * particleProgress + 42.dp.toPx() * particleProgress * particleProgress
+            val startY = center.y - avatarRadius * (.15f + (index % 4) * .17f)
+            val particleCenter = Offset(center.x + sideDrift, startY + downwardDrift)
+            val trailStart = Offset(
+                particleCenter.x - direction * (5.dp.toPx() + particleProgress * 8.dp.toPx()),
+                particleCenter.y - 6.dp.toPx(),
+            )
+            drawLine(
+                color = PremiumGold.copy(alpha = staggeredFade * .28f),
+                start = trailStart,
+                end = particleCenter,
+                strokeWidth = 1.1.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+            drawCircle(
+                color = PremiumGold.copy(alpha = staggeredFade * .9f),
+                radius = (2.35f - particleProgress * 1.15f).dp.toPx(),
+                center = particleCenter,
+            )
+            if (index % 3 == 0) {
+                val starRadius = (3.8f - particleProgress * 1.7f).dp.toPx()
+                drawLine(PremiumGold.copy(alpha = staggeredFade * .78f), Offset(particleCenter.x - starRadius, particleCenter.y), Offset(particleCenter.x + starRadius, particleCenter.y), .8.dp.toPx())
+                drawLine(PremiumGold.copy(alpha = staggeredFade * .78f), Offset(particleCenter.x, particleCenter.y - starRadius), Offset(particleCenter.x, particleCenter.y + starRadius), .8.dp.toPx())
+            }
+        }
+
+        val crownBurst = landingFlash * landingFlash
+        listOf(-1f, -.5f, 0f, .5f, 1f).forEachIndexed { index, direction ->
+            val burstCenter = Offset(
+                center.x + direction * (9.dp.toPx() + crownBurst * 15.dp.toPx()),
+                center.y - avatarRadius - 12.dp.toPx() - crownBurst * (4 + index % 2 * 5).dp.toPx(),
+            )
+            drawCircle(PremiumGold.copy(alpha = crownBurst * .9f), (1.2f + crownBurst).dp.toPx(), burstCenter)
+        }
     }
 }
 

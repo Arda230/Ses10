@@ -199,7 +199,7 @@ export class RoomStateStore {
   }
   #room(name: string): InternalRoom {
     let room = this.#rooms.get(name);
-    if (!room) { room = { name, revision: 0, seats: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, locked: false, occupant: null })), participants: new Map() }; this.#rooms.set(name, room); }
+    if (!room) { room = { name, revision: 0, seats: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, locked: name === "production-test-odasi" && index === 5, occupant: null })), participants: new Map() }; this.#rooms.set(name, room); }
     return room;
   }
 }

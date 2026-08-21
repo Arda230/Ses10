@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 
 internal data class ApiRoom(val slug: String, val title: String, val category: String)
 internal data class RoomSeatOccupant(val identity: String, val name: String, val muted: Boolean)
-internal data class RoomSeatState(val id: Int, val occupant: RoomSeatOccupant?)
+internal data class RoomSeatState(val id: Int, val locked: Boolean, val occupant: RoomSeatOccupant?)
 internal data class RoomState(
     val seats: List<RoomSeatState>,
     val participantCount: Int,
@@ -122,7 +122,7 @@ internal fun parseRoomState(payload: JSONObject): RoomState {
             val occupant = seat.optJSONObject("occupant")?.let {
                 RoomSeatOccupant(it.getString("identity"), it.getString("name"), it.getBoolean("muted"))
             }
-            RoomSeatState(seat.getInt("id"), occupant)
+            RoomSeatState(seat.getInt("id"), seat.getBoolean("locked"), occupant)
         },
         participantCount = payload.getInt("participantCount"),
         selfIdentity = payload.getJSONObject("self").getString("identity"),
