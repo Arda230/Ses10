@@ -22,27 +22,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.seson.app.core.network.ApiUser
 import com.seson.app.core.network.Ses10Api
+import com.seson.app.feature.profile.ProfileScreen
 import kotlinx.coroutines.launch
 
-private enum class HomeTab(val label:String,val icon:String){Rooms("Rooms","⌂"),Moment("Moment","◉"),Chat("Chat","✉"),Profile("Profile","♙")}
+private enum class HomeTab(val label:String,val icon:String){Home("Ana Sayfa","⌂"),Chat("Mesaj","✉"),Profile("Ben","♙")}
 private data class UiRoom(val slug:String,val title:String,val category:String,val count:Int,val host:String,val accent:Color)
 private val Bg=Color(0xFFFFF9FC);private val SurfaceWhite=Color.White;private val SoftPink=Color(0xFFFCEAF5)
 private val Lavender=Color(0xFFEEE5FF);private val Purple=Color(0xFFA84FEA);private val DeepPurple=Color(0xFF7B4ED8)
 private val Pink=Color(0xFFF062C0);private val Ink=Color(0xFF29232E);private val Muted=Color(0xFF8D8492)
 
 @Composable fun HomeScreen(onOpenRoom:(String)->Unit,onLogout:()->Unit){
- var tab by rememberSaveable{mutableStateOf(HomeTab.Rooms)};var create by remember{mutableStateOf(false)};val scope=rememberCoroutineScope()
+ var tab by rememberSaveable{mutableStateOf(HomeTab.Home)};var create by remember{mutableStateOf(false)};val scope=rememberCoroutineScope()
  Scaffold(containerColor=Bg,bottomBar={BottomBar(tab){tab=it}}){pad->
-  when(tab){HomeTab.Rooms->Feed(onOpenRoom,{create=true},Modifier.fillMaxSize().padding(pad));HomeTab.Moment->MomentScreen(Modifier.fillMaxSize().padding(pad));HomeTab.Chat->Placeholder("Chat","Henüz bir mesajın yok.",Modifier.fillMaxSize().padding(pad));HomeTab.Profile->Profile(onLogout,Modifier.fillMaxSize().padding(pad))}
+  when(tab){HomeTab.Home->Feed(onOpenRoom,{create=true},Modifier.fillMaxSize().padding(pad));HomeTab.Chat->Placeholder("Mesajlar","Henüz bir mesajın yok.",Modifier.fillMaxSize().padding(pad));HomeTab.Profile->ProfileScreen(onLogout,Modifier.fillMaxSize().padding(pad))}
  }
  if(create)CreateDialog({create=false}){t,d->scope.launch{Ses10Api.createRoom(t,"Sohbet",d).onSuccess{create=false;onOpenRoom(it.slug)}}}
 }
-@Composable private fun BottomBar(selected:HomeTab,onSelect:(HomeTab)->Unit)=Box(Modifier.fillMaxWidth().background(Bg).padding(horizontal=18.dp,vertical=10.dp)){
+@Composable private fun BottomBar(selected:HomeTab,onSelect:(HomeTab)->Unit)=Box(Modifier.fillMaxWidth().background(if(selected==HomeTab.Profile)Color(0xFF100A18) else Bg).padding(horizontal=18.dp,vertical=10.dp)){
  Surface(Modifier.fillMaxWidth().shadow(16.dp,RoundedCornerShape(30.dp)),shape=RoundedCornerShape(30.dp),color=DeepPurple,shadowElevation=10.dp){
   Row(Modifier.fillMaxWidth().padding(8.dp),horizontalArrangement=Arrangement.SpaceAround){HomeTab.entries.forEach{tab->val active=tab==selected
    Column(Modifier.clip(RoundedCornerShape(20.dp)).clickable{onSelect(tab)}.padding(horizontal=11.dp,vertical=3.dp),horizontalAlignment=Alignment.CenterHorizontally){
-    Box(Modifier.size(40.dp,27.dp).clip(CircleShape).background(if(active)Lavender else Color.Transparent),contentAlignment=Alignment.Center){Text(tab.icon,color=if(active)DeepPurple else Color.White.copy(.82f),fontWeight=FontWeight.Black)}
-    Text(tab.label,color=if(active)Color.White else Color.White.copy(.7f),style=MaterialTheme.typography.labelSmall,fontWeight=if(active)FontWeight.Bold else FontWeight.Medium)
+    Box(Modifier.size(40.dp,27.dp).clip(CircleShape).background(if(active)Pink.copy(.22f) else Color.Transparent),contentAlignment=Alignment.Center){Text(tab.icon,color=if(active)Pink else Color.White.copy(.82f),fontWeight=FontWeight.Black)}
+    Text(tab.label,color=if(active)Pink else Color.White.copy(.7f),style=MaterialTheme.typography.labelSmall,fontWeight=if(active)FontWeight.Bold else FontWeight.Medium)
    }
   }}
  }
@@ -82,5 +83,4 @@ private val Pink=Color(0xFFF062C0);private val Ink=Color(0xFF29232E);private val
 private fun initials(v:String)=v.trim().split(Regex("\\s+")).filter{it.isNotBlank()}.take(2).joinToString(""){it.take(1).uppercase()}.ifBlank{"S10"}
 @Composable private fun ErrorState(message:String,retry:()->Unit)=Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(message,color=Muted);TextButton(onClick=retry){Text("Tekrar dene",color=Purple)}}
 @Composable private fun Placeholder(title:String,detail:String,modifier:Modifier)=Column(modifier.background(Bg),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Text(title,color=Ink,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text(detail,color=Muted)}
-@Composable private fun Profile(logout:()->Unit,modifier:Modifier){var user by remember{mutableStateOf<ApiUser?>(null)};LaunchedEffect(Unit){user=Ses10Api.me().getOrNull()};Column(modifier.background(Bg).padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(18.dp)){Text("Profile",Modifier.fillMaxWidth(),color=Ink,style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold);Avatar(initials(user?.displayName?:user?.username?:"Ses10"),Purple,88);Text(user?.displayName?:user?.username?:"Ses10 Kullanıcısı",color=Ink,fontWeight=FontWeight.Bold);Text("@${user?.username.orEmpty()} · ID ${user?.id.orEmpty()}",color=Muted);Button(onClick=logout,modifier=Modifier.fillMaxWidth()){Text("Çıkış yap")}}}
 @Composable private fun CreateDialog(dismiss:()->Unit,create:(String,String)->Unit){var title by remember{mutableStateOf("")};var description by remember{mutableStateOf("")};AlertDialog(onDismissRequest=dismiss,title={Text("Yeni oda oluştur")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){OutlinedTextField(title,{title=it},label={Text("Oda adı")},singleLine=true);OutlinedTextField(description,{description=it},label={Text("Açıklama")})}},confirmButton={TextButton(onClick={create(title.trim(),description.trim())},enabled=title.trim().length>=3){Text("Oluştur")}},dismissButton={TextButton(onClick=dismiss){Text("Vazgeç")}})}

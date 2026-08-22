@@ -419,10 +419,9 @@ private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, m
     val occupied = seat.name != null || isOwnSeat
     val isHostSeat = seat.id == 1
     val shownName = if (isOwnSeat) "Sen" else seat.name
-    val shownInitials = if (isOwnSeat) "S10" else seat.initials
     val shownMuted = if (isOwnSeat) !microphoneOn else seat.muted
     val speaking = if (isOwnSeat) microphoneOn else seat.speaking
-    val accent = when { isHostSeat -> PremiumGold; isOwnSeat -> LiveCyan; speaking -> LiveCyan; occupied -> NeonViolet; else -> Color(0xFF536078) }
+    val accent = when { isHostSeat -> PremiumGold; speaking -> RoomPink; else -> NeonViolet }
     val transition = rememberInfiniteTransition(label = "speaker-${seat.id}")
     val pulse by transition.animateFloat(.95f, 1.1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulse")
     val entranceProgress = remember { Animatable(1f) }
@@ -460,31 +459,24 @@ private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, m
             if (isHostSeat && isOwnSeat && entranceProgress.value < 1f) {
                 HostEntranceGlow(avatarSize, entranceProgress.value, crownDrop.value, crownAlpha.value)
             }
-            if (isHostSeat) Box(Modifier.size(avatarSize + 13.dp).shadow(18.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold).border(1.dp, PremiumGold.copy(alpha = .32f), CircleShape))
+            if (isHostSeat) Box(Modifier.size(avatarSize + 13.dp).shadow(18.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold).border(1.dp, PremiumGold.copy(alpha = .42f), CircleShape))
             if (speaking) Box(Modifier.size(avatarSize + 11.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 1.38f - pulse }.border(2.dp, LiveCyan.copy(alpha = .9f), CircleShape))
-            if (!occupied && !isHostSeat) {
+            if (!isHostSeat) {
                 Box(
-                    Modifier.size(avatarSize + 7.dp)
-                        .shadow(9.dp, CircleShape, ambientColor = LiveCyan.copy(alpha = .35f), spotColor = NeonViolet.copy(alpha = .32f))
-                        .border(1.dp, Brush.sweepGradient(listOf(LiveCyan.copy(alpha = .55f), NeonViolet.copy(alpha = .7f), Color.Transparent, LiveCyan.copy(alpha = .55f))), CircleShape),
+                    Modifier.size(avatarSize + 8.dp)
+                        .shadow(13.dp, CircleShape, ambientColor = RoomPurple.copy(alpha = .72f), spotColor = RoomPink.copy(alpha = .68f))
+                        .border(1.5.dp, Brush.sweepGradient(listOf(RoomPurple, RoomPink, Color(0xFFCB65FF), RoomPurple)), CircleShape),
                 )
             }
             Box(
                 Modifier.size(avatarSize)
-                    .shadow(if (occupied) 15.dp else 4.dp, CircleShape, ambientColor = accent, spotColor = accent)
+                    .shadow(12.dp, CircleShape, ambientColor = accent.copy(alpha = .7f), spotColor = RoomPink.copy(alpha = .62f))
                     .clip(CircleShape)
-                    .background(if (occupied) Brush.linearGradient(listOf(accent.copy(alpha = .95f), NeonBlue.copy(alpha = .62f), RoomPink.copy(alpha = .48f))) else Brush.radialGradient(listOf(theme.middle.copy(alpha = .72f), theme.glassStrong)))
-                    .border(if (isHostSeat) 2.dp else 1.dp, accent.copy(alpha = if (occupied) .92f else .5f), CircleShape),
+                    .background(Brush.radialGradient(listOf(Color(0xB82B2136), Color(0xD9181222))))
+                    .border(if (isHostSeat) 2.dp else 1.dp, if (isHostSeat) PremiumGold else RoomPink.copy(alpha = .74f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!occupied && !isHostSeat && !seat.locked) {
-                    EmptySeatMicrophone(Modifier.size(avatarSize * .52f))
-                } else {
-                    Text(if (seat.locked) "×" else shownInitials, color = if (occupied) Color.White else Color(0xFF9DA9BE), fontWeight = FontWeight.Black, fontSize = if (occupied) 14.sp else 24.sp)
-                }
-            }
-            Surface(modifier = Modifier.align(Alignment.BottomEnd), shape = CircleShape, color = if (speaking) LiveCyan else Color.White, border = BorderStroke(1.dp, RoomBackground)) {
-                Text(if (speaking) "♫" else if (seat.locked) "⌁" else seat.id.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = if (speaking) Color(0xFF08221D) else RoomDeepPurple, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                EmptySeatMicrophone(Modifier.size(avatarSize * .55f))
             }
             if (isHostSeat) Text("♛", Modifier.align(Alignment.TopCenter).graphicsLayer { translationY = -18f + crownDrop.value * 24.dp.toPx(); alpha = crownAlpha.value; scaleX = .82f + crownAlpha.value * .18f; scaleY = scaleX }.shadow(7.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold), color = PremiumGold, fontSize = 17.sp, fontWeight = FontWeight.Black)
         }
@@ -579,14 +571,13 @@ private fun HostEntranceGlow(avatarSize: androidx.compose.ui.unit.Dp, progress: 
 @Composable
 private fun EmptySeatMicrophone(modifier: Modifier = Modifier) {
     Canvas(modifier) {
-        val stroke = 1.7.dp.toPx()
-        val glow = LiveCyan.copy(alpha = .22f)
-        val body = Color(0xFFB8D9EA)
-        drawRoundRect(color = glow, topLeft = Offset(size.width * .25f, size.height * .05f), size = Size(size.width * .5f, size.height * .62f), cornerRadius = CornerRadius(size.width * .25f), style = Stroke(width = stroke * 3f))
-        drawRoundRect(color = body, topLeft = Offset(size.width * .32f, size.height * .08f), size = Size(size.width * .36f, size.height * .52f), cornerRadius = CornerRadius(size.width * .18f), style = Stroke(width = stroke))
-        drawArc(color = LiveCyan, startAngle = 0f, sweepAngle = 180f, useCenter = false, topLeft = Offset(size.width * .2f, size.height * .28f), size = Size(size.width * .6f, size.height * .48f), style = Stroke(width = stroke))
-        drawLine(LiveCyan, Offset(size.width * .5f, size.height * .76f), Offset(size.width * .5f, size.height * .88f), stroke)
-        drawLine(body, Offset(size.width * .34f, size.height * .88f), Offset(size.width * .66f, size.height * .88f), stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        val stroke = 1.8.dp.toPx()
+        val neon = Brush.linearGradient(listOf(Color(0xFFC56BFF), Color(0xFFFF63C3)))
+        drawRoundRect(color = RoomPurple.copy(alpha = .25f), topLeft = Offset(size.width * .25f, size.height * .05f), size = Size(size.width * .5f, size.height * .62f), cornerRadius = CornerRadius(size.width * .25f), style = Stroke(width = stroke * 3.2f))
+        drawRoundRect(brush = neon, topLeft = Offset(size.width * .32f, size.height * .08f), size = Size(size.width * .36f, size.height * .52f), cornerRadius = CornerRadius(size.width * .18f), style = Stroke(width = stroke))
+        drawArc(brush = neon, startAngle = 0f, sweepAngle = 180f, useCenter = false, topLeft = Offset(size.width * .2f, size.height * .28f), size = Size(size.width * .6f, size.height * .48f), style = Stroke(width = stroke))
+        drawLine(brush = neon, start = Offset(size.width * .5f, size.height * .76f), end = Offset(size.width * .5f, size.height * .88f), strokeWidth = stroke)
+        drawLine(brush = neon, start = Offset(size.width * .34f, size.height * .88f), end = Offset(size.width * .66f, size.height * .88f), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
     }
 }
 
