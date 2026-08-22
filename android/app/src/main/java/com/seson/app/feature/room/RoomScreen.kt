@@ -12,6 +12,8 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +38,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -80,13 +85,46 @@ import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.pow
 
-private val RoomBackground = Color(0xFF060A16)
-private val RoomSurface = Color(0xFF11182A)
-private val NeonViolet = Color(0xFF9E78FF)
-private val NeonBlue = Color(0xFF357CFF)
-private val LiveCyan = Color(0xFF27D9F5)
+private val RoomBackground = Color(0xFFFFF7FC)
+private val RoomSoftPink = Color(0xFFFCEAF5)
+private val RoomLavender = Color(0xFFEEE5FF)
+private val RoomPurple = Color(0xFFA84FEA)
+private val RoomDeepPurple = Color(0xFF7B4ED8)
+private val RoomPink = Color(0xFFF062C0)
+private val RoomInk = Color(0xFF29232E)
+private val RoomMuted = Color(0xFF8D8492)
+private val RoomSurface = Color.White
+private val NeonViolet = RoomPurple
+private val NeonBlue = RoomDeepPurple
+private val LiveCyan = RoomPink
 private val PremiumGold = Color(0xFFFFD278)
-private val MutedLabel = Color(0xFF8B95AD)
+private val MutedLabel = RoomMuted
+
+private enum class RoomThemeOption(
+    val key: String,
+    val title: String,
+    val category: String,
+    val background: Color,
+    val middle: Color,
+    val accent: Color,
+    val dark: Boolean,
+) {
+    Ses10Purple("ses10_purple", "Ses10 Purple", "Galeri", Color(0xFFFFF7FC), Color(0xFFEEE5FF), Color(0xFFA84FEA), false),
+    NeonNight("neon_night", "Neon Night", "Galeri", Color(0xFF21112F), Color(0xFF6C278E), Color(0xFFFF5BC1), true),
+    Luxury("luxury", "Luxury", "Premium", Color(0xFFFFF8ED), Color(0xFFF1D6A5), Color(0xFF9A66D7), false),
+    Romance("romance", "Romance", "Galeri", Color(0xFFFFF3F8), Color(0xFFF7C8DF), Color(0xFFF062C0), false),
+    DarkClub("dark_club", "Dark Club", "Premium", Color(0xFF160D20), Color(0xFF4C1B62), Color(0xFFC351F0), true),
+    Galaxy("galaxy", "Galaxy", "Premium", Color(0xFF17132E), Color(0xFF51418E), Color(0xFFED63C3), true);
+
+    val foreground: Color get() = if (dark) Color(0xFFFFF7FF) else RoomInk
+    val mutedForeground: Color get() = if (dark) Color(0xFFD5C3DB) else RoomMuted
+    val glass: Color get() = if (dark) Color(0x661A1025) else Color.White.copy(.46f)
+    val glassStrong: Color get() = if (dark) Color(0xA6211430) else Color.White.copy(.68f)
+
+    companion object {
+        fun fromKey(key: String?): RoomThemeOption = entries.firstOrNull { it.key == key } ?: Ses10Purple
+    }
+}
 
 private data class MicSeat(val id: Int, val userId: String? = null, val identity: String? = null, val role: String = "listener", val name: String? = null, val initials: String = "+", val muted: Boolean = true, val speaking: Boolean = false, val locked: Boolean = false)
 
@@ -95,6 +133,10 @@ private data class MicSeat(val id: Int, val userId: String? = null, val identity
 fun RoomScreen(roomName: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val themePreferences = remember { context.getSharedPreferences("ses10_room_themes", android.content.Context.MODE_PRIVATE) }
+    var appliedTheme by remember(roomName) { mutableStateOf(RoomThemeOption.fromKey(themePreferences.getString("theme_$roomName", null))) }
+    var showThemePanel by remember { mutableStateOf(false) }
+    var showRoomSettings by remember { mutableStateOf(false) }
     val controller = remember(roomName) { RoomAudioSession.controller(context, roomName) }
     val roomSeats = remember { (1..12).map(::MicSeat) }
     val backendState by controller.roomState.collectAsState()
@@ -179,12 +221,12 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
     }
 
     Scaffold(
-        containerColor = RoomBackground,
+        containerColor = appliedTheme.background,
         topBar = {
-            Row(Modifier.fillMaxWidth().background(Color(0xF2060A16)).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { scope.launch { RoomAudioSession.leaveAndStop(context); onBack() } }) { Text("‹  Keşfet", color = Color(0xFFEAF2FF), fontWeight = FontWeight.SemiBold) }
+            Row(Modifier.fillMaxWidth().background(appliedTheme.background).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { scope.launch { RoomAudioSession.leaveAndStop(context); onBack() } }) { Text("‹  Çık", color = appliedTheme.foreground, fontWeight = FontWeight.SemiBold) }
                 Spacer(Modifier.weight(1f))
-                Text(connectionLabel, color = Color(0xFFB9C5DA), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                Text(connectionLabel, color = appliedTheme.mutedForeground, style = MaterialTheme.typography.labelSmall, maxLines = 1)
             }
         },
         bottomBar = {
@@ -202,73 +244,52 @@ fun RoomScreen(roomName: String, onBack: () -> Unit) {
                 handRaised = handRaised,
                 onHandRaise = { scope.launch { runCatching { controller.raiseHand(!handRaised) }.onSuccess { handRaised = !handRaised }.onFailure { connectionLabel = it.message ?: "El kaldırma güncellenemedi" } } },
                 onGiftClick = { scope.launch { controller.gifts().let { giftCatalog = it.first; giftBalance = it.second; showGiftPanel = true } } },
+                onMoreClick = { showRoomSettings = true },
+                theme = appliedTheme,
             )
         },
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(0f to Color(0xFF161238), .28f to Color(0xFF090E20), 1f to RoomBackground)).padding(horizontal = 14.dp),
+            Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(appliedTheme.background, appliedTheme.middle.copy(alpha = .78f), appliedTheme.accent.copy(alpha = .28f), appliedTheme.background))).padding(horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            RoomHeader(roomName, backendState?.participantCount ?: 0)
+            RoomHeader(roomName, backendState?.participantCount ?: 0, appliedTheme) { showRoomSettings = true }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("SES10 SAHNESİ", color = LiveCyan, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
-                    Text("12 konuşmacı koltuğu", color = Color(0xFF9CA7BD), fontSize = 10.sp)
+                    Text("SES10 SAHNESİ", color = RoomPurple, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+                    Text("12 konuşmacı koltuğu", color = appliedTheme.mutedForeground, fontSize = 10.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                Text("•  CANLI ODA", color = LiveCyan.copy(alpha = .9f), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
+                Text("●  CANLI ODA", color = RoomPink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
             }
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val compact = maxWidth < 360.dp
-                val normalAvatarSize = if (compact) 44.dp else 50.dp
-                val hostAvatarSize = if (compact) 57.dp else 64.dp
-                val horizontalSpacing = if (compact) 2.dp else 7.dp
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SeatCard(
-                            seat = seats.first(),
-                            isOwnSeat = selectedSeatId == seats.first().id,
-                            microphoneOn = microphoneOn,
-                            modifier = Modifier.width(if (compact) 94.dp else 112.dp),
-                            avatarSize = hostAvatarSize,
-                            hostEntranceKey = hostEntranceKey,
-                            onClick = { handleSeatClick(seats.first(), selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it }) { hostEntranceKey += 1 } },
-                        )
-                        SeatCard(
-                            seat = seats[11],
-                            isOwnSeat = selectedSeatId == seats[11].id,
-                            microphoneOn = microphoneOn,
-                            modifier = Modifier.width(if (compact) 66.dp else 76.dp),
-                            avatarSize = normalAvatarSize,
-                            onClick = { handleSeatClick(seats[11], selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it }) },
-                        )
-                    }
-                    Spacer(Modifier.height(if (compact) 18.dp else 24.dp))
-                    StageSeatRow(seats.slice(1..5), spacing = horizontalSpacing) { seat ->
-                        SeatCard(seat, selectedSeatId == seat.id, microphoneOn, Modifier.weight(1f), normalAvatarSize) {
-                            handleSeatClick(seat, selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it })
-                        }
-                    }
-                    Spacer(Modifier.height(if (compact) 25.dp else 34.dp))
-                    StageSeatRow(seats.slice(6..10), spacing = horizontalSpacing) { seat ->
-                        SeatCard(seat, selectedSeatId == seat.id, microphoneOn, Modifier.weight(1f), normalAvatarSize) {
-                            handleSeatClick(seat, selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it })
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                val avatarSize = if (maxWidth < 360.dp) 42.dp else 48.dp
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
+                    listOf(seats.slice(0..3), seats.slice(4..7), seats.slice(8..11)).forEach { row ->
+                        StageSeatRow(row, 8.dp) { seat ->
+                            SeatCard(seat, selectedSeatId == seat.id, microphoneOn, Modifier.weight(1f), avatarSize, appliedTheme, if (seat.id == 1) hostEntranceKey else 0) {
+                                handleSeatClick(seat, selectedSeatId, connected, controller, scope, { microphoneOn = it }, { connectionLabel = it }) { if (seat.id == 1) hostEntranceKey += 1 }
+                            }
                         }
                     }
                 }
             }
             if ((backendState?.selfRole == "host" || backendState?.selfRole == "moderator") && backendState?.handRaises?.isNotEmpty() == true) TextButton(onClick = { showHandRequests = true }) { Text("✋ ${backendState?.handRaises?.size} konuşma isteği", color = PremiumGold) }
             TextButton(onClick = { showParticipants = true }) { Text("Katılımcılar (${backendState?.participantCount ?: 0})", color = LiveCyan) }
-            RoomChatPreview(backendState?.messages.orEmpty())
+            RoomChatPreview(backendState?.messages.orEmpty(), appliedTheme)
         }
     }
+    if (showRoomSettings) RoomSettingsPanel(
+        canManage = backendState?.selfRole == "host" || backendState?.selfRole == "moderator",
+        onDismiss = { showRoomSettings = false },
+        onProfile = {
+            val selfUserId = backendState?.participants?.firstOrNull { it.identity == backendState?.selfIdentity }?.userId
+            if (selfUserId != null) scope.launch { selectedProfile = runCatching { controller.publicProfile(selfUserId) }.getOrNull() }
+            showRoomSettings = false
+        },
+        onTheme = { showRoomSettings = false; showThemePanel = true },
+    )
+    if (showThemePanel) RoomThemePanel(appliedTheme, { showThemePanel = false }) { theme -> appliedTheme = theme; themePreferences.edit().putString("theme_$roomName", theme.key).apply(); showThemePanel = false }
     if (showGiftPanel) GiftPanel(giftCatalog, backendState?.participants.orEmpty().filter { it.identity != backendState?.selfIdentity }, giftBalance, onDismiss = { showGiftPanel = false }, onSend = { receiver, gift -> scope.launch { runCatching { controller.sendGift(receiver, gift, java.util.UUID.randomUUID().toString()) }.onSuccess { giftBalance = it; showGiftPanel = false }.onFailure { connectionLabel = it.message ?: "Hediye gönderilemedi" } } })
     if (showHandRequests) ModalBottomSheet(onDismissRequest = { showHandRequests = false }, containerColor = RoomSurface) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Konuşma istekleri", fontWeight = FontWeight.Bold); backendState?.handRaises?.forEach { request -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(request.name); Row { TextButton(onClick = { scope.launch { controller.resolveHand(request.identity, false) } }) { Text("Reddet") }; TextButton(onClick = { scope.launch { controller.resolveHand(request.identity, true) } }) { Text("Kabul") } } } } } }
     if (showParticipants) ModalBottomSheet(onDismissRequest = { showParticipants = false }, containerColor = RoomSurface) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Katılımcılar ve yönetim", fontWeight = FontWeight.Bold); backendState?.participants?.forEach { person -> Column(Modifier.fillMaxWidth().clickable { scope.launch { selectedProfile = runCatching { controller.publicProfile(person.userId) }.getOrNull() } }.padding(vertical = 6.dp)) { Text("${person.name} · ${person.role}"); Text(person.userId, color = MutedLabel, fontSize = 9.sp); if ((backendState?.selfRole == "host" || backendState?.selfRole == "moderator") && person.identity != backendState?.selfIdentity && person.role != "host") Row { TextButton(onClick = { scope.launch { controller.muteParticipant(person.identity) } }) { Text("Mute") }; if (person.seatId != null) TextButton(onClick = { scope.launch { controller.removeFromSeat(person.identity) } }) { Text("İndir") }; TextButton(onClick = { scope.launch { controller.kick(person.identity) } }) { Text("Çıkar") }; if (backendState?.selfRole == "host") TextButton(onClick = { scope.launch { controller.setRole(person.userId, if (person.role == "moderator") "listener" else "moderator") } }) { Text(if (person.role == "moderator") "Mod kaldır" else "Mod yap") } } } }; if (backendState?.selfRole == "host" || backendState?.selfRole == "moderator") { Text("Koltuk kilitleri", color = PremiumGold); LazyRow { items(backendState?.seats.orEmpty(), key = { it.id }) { seat -> TextButton(onClick = { scope.launch { controller.setSeatLock(seat.id, !seat.locked) } }) { Text("${seat.id}: ${if (seat.locked) "Aç" else "Kilitle"}") } } } }; if (backendState?.selfRole == "host") TextButton(onClick = { scope.launch { controller.closeRoom() } }) { Text("Odayı kapat", color = Color.Red) } } }
@@ -302,25 +323,78 @@ private fun String.initials(): String = trim().split(Regex("\\s+")).take(2).join
 }
 
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RoomHeader(roomName: String, participantCount: Int) {
+private fun RoomHeader(roomName: String, participantCount: Int, theme: RoomThemeOption, onSettingsClick: () -> Unit) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val displayName = roomName.replace('-', ' ').replace('_', ' ').replaceFirstChar { it.uppercase() }
+    val marqueeText = "$displayName   •   $roomName   •   $displayName"
+
     Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = Color(0xE811172A),
-        border = BorderStroke(1.dp, Color(0xFF293657)),
+        modifier = Modifier.fillMaxWidth().height(50.dp).shadow(3.dp, RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = theme.glass,
+        border = BorderStroke(1.dp, theme.accent.copy(.24f)),
+        tonalElevation = 0.dp,
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(9.dp).clip(CircleShape).background(LiveCyan).shadow(8.dp, CircleShape, ambientColor = LiveCyan, spotColor = LiveCyan))
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)) {
-                Text(roomName.replace('-', ' ').replace('_', ' ').replaceFirstChar { it.uppercase() }, color = Color(0xFFF8F5FF), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("SES10  ·  ID $roomName", color = Color(0xFF929DB4), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(34.dp).clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(RoomPurple, RoomPink))),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("S10", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
-            Surface(shape = RoundedCornerShape(14.dp), color = LiveCyan.copy(alpha = .12f)) {
-                Text("●  $participantCount çevrimiçi", Modifier.padding(horizontal = 9.dp, vertical = 6.dp), color = LiveCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = marqueeText,
+                modifier = Modifier.padding(start = 9.dp).weight(1f).basicMarquee(
+                    iterations = Int.MAX_VALUE,
+                    repeatDelayMillis = 1_100,
+                    velocity = 24.dp,
+                ),
+                color = theme.foreground,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp,
+                maxLines = 1,
+            )
+            Surface(color = theme.glassStrong, shape = RoundedCornerShape(12.dp)) {
+                Text(
+                    "● $participantCount",
+                    Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    color = theme.accent,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            Spacer(Modifier.width(7.dp))
-            Text("•••", color = Color(0xFF9DA8BC), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(3.dp))
+            Box {
+                Text(
+                    "•••",
+                    Modifier.size(34.dp).clip(CircleShape).clickable { menuExpanded = true }.padding(top = 7.dp),
+                    color = theme.foreground,
+                    fontWeight = FontWeight.Black,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    modifier = Modifier.width(188.dp).background(Color.Transparent),
+                    shape = RoundedCornerShape(18.dp),
+                    containerColor = theme.glassStrong,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 7.dp,
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Oda Ayarları", color = theme.foreground, fontWeight = FontWeight.Bold) },
+                        leadingIcon = { Text("⚙", color = theme.accent, fontWeight = FontWeight.Bold) },
+                        trailingIcon = { Text("›", color = RoomPink, fontSize = 20.sp) },
+                        onClick = { menuExpanded = false; onSettingsClick() },
+                    )
+                }
+            }
         }
     }
 }
@@ -341,7 +415,7 @@ private fun StageSeatRow(
 }
 
 @Composable
-private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, modifier: Modifier = Modifier, avatarSize: androidx.compose.ui.unit.Dp = 60.dp, hostEntranceKey: Int = 0, onClick: () -> Unit) {
+private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, modifier: Modifier = Modifier, avatarSize: androidx.compose.ui.unit.Dp = 60.dp, theme: RoomThemeOption, hostEntranceKey: Int = 0, onClick: () -> Unit) {
     val occupied = seat.name != null || isOwnSeat
     val isHostSeat = seat.id == 1
     val shownName = if (isOwnSeat) "Sen" else seat.name
@@ -399,7 +473,7 @@ private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, m
                 Modifier.size(avatarSize)
                     .shadow(if (occupied) 15.dp else 4.dp, CircleShape, ambientColor = accent, spotColor = accent)
                     .clip(CircleShape)
-                    .background(if (occupied) Brush.linearGradient(listOf(accent.copy(alpha = .95f), NeonBlue.copy(alpha = .62f), Color(0xFF171B34))) else Brush.radialGradient(listOf(Color(0xFF202B42), Color(0xFF101728))))
+                    .background(if (occupied) Brush.linearGradient(listOf(accent.copy(alpha = .95f), NeonBlue.copy(alpha = .62f), RoomPink.copy(alpha = .48f))) else Brush.radialGradient(listOf(theme.middle.copy(alpha = .72f), theme.glassStrong)))
                     .border(if (isHostSeat) 2.dp else 1.dp, accent.copy(alpha = if (occupied) .92f else .5f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
@@ -409,13 +483,13 @@ private fun SeatCard(seat: MicSeat, isOwnSeat: Boolean, microphoneOn: Boolean, m
                     Text(if (seat.locked) "×" else shownInitials, color = if (occupied) Color.White else Color(0xFF9DA9BE), fontWeight = FontWeight.Black, fontSize = if (occupied) 14.sp else 24.sp)
                 }
             }
-            Surface(modifier = Modifier.align(Alignment.BottomEnd), shape = CircleShape, color = if (speaking) LiveCyan else Color(0xFF1A2235), border = BorderStroke(1.dp, RoomBackground)) {
-                Text(if (speaking) "♫" else if (seat.locked) "⌁" else seat.id.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = if (speaking) Color(0xFF08221D) else Color(0xFFF1EBF6), fontSize = 8.sp, fontWeight = FontWeight.Black)
+            Surface(modifier = Modifier.align(Alignment.BottomEnd), shape = CircleShape, color = if (speaking) LiveCyan else Color.White, border = BorderStroke(1.dp, RoomBackground)) {
+                Text(if (speaking) "♫" else if (seat.locked) "⌁" else seat.id.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = if (speaking) Color(0xFF08221D) else RoomDeepPurple, fontSize = 8.sp, fontWeight = FontWeight.Black)
             }
             if (isHostSeat) Text("♛", Modifier.align(Alignment.TopCenter).graphicsLayer { translationY = -18f + crownDrop.value * 24.dp.toPx(); alpha = crownAlpha.value; scaleX = .82f + crownAlpha.value * .18f; scaleY = scaleX }.shadow(7.dp, CircleShape, ambientColor = PremiumGold, spotColor = PremiumGold), color = PremiumGold, fontSize = 17.sp, fontWeight = FontWeight.Black)
         }
-        Text(shownName ?: if (isHostSeat) "Oda sahibi" else "Boş koltuk", color = if (occupied) Color(0xFFF8F4FC) else Color(0xFFAAB4C7), fontSize = 11.sp, fontWeight = if (isHostSeat || occupied) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(when { seat.locked -> "Kilitli"; !occupied -> "Mic ${seat.id}"; speaking -> "Konuşuyor"; shownMuted -> "Mic kapalı"; else -> "Mic açık" }, color = when { speaking -> LiveCyan; isHostSeat -> PremiumGold; else -> Color(0xFF7F8BA3) }, fontSize = 9.sp, maxLines = 1)
+        Text(shownName ?: if (isHostSeat) "Oda sahibi" else "Boş koltuk", color = if (occupied) theme.foreground else theme.mutedForeground, fontSize = 11.sp, fontWeight = if (isHostSeat || occupied) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(when { seat.locked -> "Kilitli"; !occupied -> "Mic ${seat.id}"; speaking -> "Konuşuyor"; shownMuted -> "Mic kapalı"; else -> "Mic açık" }, color = when { speaking -> LiveCyan; isHostSeat -> PremiumGold; else -> theme.mutedForeground }, fontSize = 9.sp, maxLines = 1)
     }
 }
 
@@ -517,12 +591,12 @@ private fun EmptySeatMicrophone(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RoomChatPreview(messages: List<com.seson.app.core.network.ApiMessage>) {
-    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xC40D1424), border = BorderStroke(1.dp, Color(0xFF202D48))) {
+private fun RoomChatPreview(messages: List<com.seson.app.core.network.ApiMessage>, theme: RoomThemeOption) {
+    Surface(shape = RoundedCornerShape(18.dp), color = theme.glass, border = BorderStroke(1.dp, theme.accent.copy(.22f))) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("ODA SOHBETİ", color = LiveCyan, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            if (messages.isEmpty()) Text("Henüz mesaj yok", color = Color(0xFFBEC8DA), fontSize = 10.sp)
-            messages.takeLast(3).forEach { item -> Row(verticalAlignment = Alignment.CenterVertically) { Text(if (item.type == "user") item.displayName else "Sistem", color = if (item.type == "user") NeonViolet else PremiumGold, fontSize = 10.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.width(7.dp)); Text(item.body, color = Color(0xFFBEC8DA), fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) } }
+            Text("ODA SOHBETİ", color = theme.accent, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            if (messages.isEmpty()) Text("Ses10 odasına hoş geldin ✨", color = theme.mutedForeground, fontSize = 10.sp)
+            messages.takeLast(2).forEach { item -> Row { Text(if (item.type == "user") item.displayName else "Sistem", color = if (item.type == "user") RoomPurple else PremiumGold, fontSize = 10.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.width(7.dp)); Text(item.body, color = theme.foreground.copy(.82f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) } }
         }
     }
 }
@@ -538,45 +612,91 @@ private fun RoomControls(
     canUseMicrophone: Boolean,
     onMicrophoneClick: () -> Unit,
     onGiftClick: () -> Unit,
+    onMoreClick: () -> Unit,
+    theme: RoomThemeOption,
 ) {
-    Column(Modifier.fillMaxWidth().background(Color(0xFA080D19)).imePadding().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = message, onValueChange = onMessageChange, modifier = Modifier.weight(1f).height(46.dp), placeholder = { Text("Odaya mesaj yaz...", color = MutedLabel, fontSize = 13.sp) }, singleLine = true, shape = RoundedCornerShape(22.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = RoomSurface, unfocusedContainerColor = RoomSurface, focusedBorderColor = LiveCyan, unfocusedBorderColor = Color(0xFF26334D)), trailingIcon = { IconButton(onClick = onSendMessage, enabled = message.isNotBlank()) { Text("↑", color = if (message.isNotBlank()) NeonViolet else MutedLabel) } })
-            GiftButton(onGiftClick)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            ControlButton(
-                if (microphoneOn) "♫" else "⌁",
-                if (microphoneOn) "Mic açık" else "Mic kapalı",
-                microphoneOn,
-                onMicrophoneClick,
-                enabled = canUseMicrophone,
+    Surface(
+        modifier = Modifier.fillMaxWidth().imePadding().padding(horizontal = 10.dp, vertical = 7.dp)
+            .shadow(14.dp, RoundedCornerShape(27.dp), ambientColor = RoomPurple.copy(.18f), spotColor = RoomPink.copy(.14f)),
+        color = theme.glass,
+        shape = RoundedCornerShape(27.dp),
+        border = BorderStroke(1.dp, theme.accent.copy(.22f)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            OutlinedTextField(
+                value = message,
+                onValueChange = onMessageChange,
+                modifier = Modifier.weight(1f).height(46.dp),
+                placeholder = { Text("Mesaj yaz...", color = theme.mutedForeground, fontSize = 11.sp, maxLines = 1) },
+                singleLine = true,
+                shape = RoundedCornerShape(22.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = theme.foreground,
+                    unfocusedTextColor = theme.foreground,
+                    cursorColor = theme.accent,
+                    focusedContainerColor = theme.glassStrong,
+                    unfocusedContainerColor = theme.glassStrong,
+                    focusedBorderColor = RoomPurple,
+                    unfocusedBorderColor = Color.Transparent,
+                ),
+                trailingIcon = {
+                    IconButton(onClick = onSendMessage, enabled = message.isNotBlank(), modifier = Modifier.size(34.dp)) {
+                        Text("↑", color = if (message.isNotBlank()) theme.accent else theme.mutedForeground, fontWeight = FontWeight.Black)
+                    }
+                },
             )
-            ControlButton("✋", if (handRaised) "Geri çek" else "El kaldır", handRaised, onClick = onHandRaise)
+            DockButton("☺", active = false, enabled = false, size = 40.dp, theme = theme) {}
+            DockButton("◇", active = true, size = 43.dp, gift = true, theme = theme, onClick = onGiftClick)
+            DockButton("✋", active = handRaised, size = 42.dp, theme = theme, onClick = onHandRaise)
+            DockButton(if (microphoneOn) "♫" else "⌁", active = microphoneOn, enabled = canUseMicrophone, size = 48.dp, microphone = true, theme = theme, onClick = onMicrophoneClick)
+            DockButton("•••", active = false, size = 40.dp, theme = theme, onClick = onMoreClick)
         }
     }
 }
 
 @Composable
-private fun ControlButton(symbol: String, label: String, active: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Box(Modifier.size(40.dp).clip(RoundedCornerShape(16.dp)).background(if (active) LiveCyan else RoomSurface).border(1.dp, if (active) LiveCyan else Color(0xFF2B3955), RoundedCornerShape(16.dp)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) { Text(symbol, color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = .35f) else if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) }
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else .45f))
+private fun DockButton(
+    symbol: String,
+    active: Boolean,
+    enabled: Boolean = true,
+    size: androidx.compose.ui.unit.Dp,
+    gift: Boolean = false,
+    microphone: Boolean = false,
+    theme: RoomThemeOption,
+    onClick: () -> Unit,
+) {
+    val shape = CircleShape
+    val glow = if (microphone && active) 12.dp else if (gift) 7.dp else 0.dp
+    val background = when {
+        microphone && active -> Brush.linearGradient(listOf(RoomDeepPurple, RoomPurple, RoomPink))
+        gift -> Brush.linearGradient(listOf(RoomPink, RoomPurple))
+        active -> Brush.linearGradient(listOf(RoomPurple, RoomPink))
+        else -> Brush.linearGradient(listOf(theme.glassStrong, theme.middle.copy(alpha = .62f)))
+    }
+    Box(
+        Modifier.size(size)
+            .then(if (glow > 0.dp) Modifier.shadow(glow, shape, ambientColor = RoomPurple, spotColor = RoomPink) else Modifier)
+            .clip(shape).background(background)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            symbol,
+            color = when {
+                !enabled -> RoomMuted.copy(.48f)
+                active || gift -> Color.White
+                else -> theme.foreground
+            },
+            fontSize = if (symbol == "•••") 11.sp else 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
-
-@Composable
-private fun GiftButton(onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Box(
-            Modifier.size(46.dp).shadow(10.dp, RoundedCornerShape(16.dp), ambientColor = PremiumGold, spotColor = PremiumGold).clip(RoundedCornerShape(16.dp)).background(Brush.linearGradient(listOf(Color(0xFF6C4B19), Color(0xFF30203D))))
-                .border(1.dp, PremiumGold.copy(alpha = .7f), RoundedCornerShape(16.dp)).clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) { Text("◇", color = PremiumGold, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
-        Text("Hediye", color = PremiumGold, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
-}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GiftPanel(
@@ -588,7 +708,7 @@ private fun GiftPanel(
 ) {
     var selectedGift by remember(gifts) { mutableStateOf(gifts.firstOrNull()?.id) }
     var selectedReceiver by remember(participants) { mutableStateOf(participants.firstOrNull()?.userId) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF14111F), contentColor = Color.White) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White, contentColor = RoomInk) {
         Column(Modifier.fillMaxWidth().padding(18.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Hediye gönder · Bakiye $balance", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Hediye", color = MutedLabel)
@@ -604,12 +724,182 @@ private fun GiftPanel(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RoomSettingsPanel(
+    canManage: Boolean,
+    onDismiss: () -> Unit,
+    onProfile: () -> Unit,
+    onTheme: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = RoomBackground,
+        contentColor = RoomInk,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Oda Ayarları", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+            Text(if (canManage) "Oda yönetimi ve görünüm" else "Oda bilgileri ve görünüm", color = RoomMuted)
+            SettingsGroup {
+                SettingsRow("♙", "Profil", "Odadaki profilini görüntüle", enabled = true, onClick = onProfile)
+                SettingsRow("✎", "Odanın Adı", if (canManage) "Yakında" else "Yalnızca yöneticiler", enabled = false)
+                SettingsRow("☷", "Duyuru", if (canManage) "Yakında" else "Yalnızca yöneticiler", enabled = false)
+            }
+            SettingsGroup {
+                SettingsRow("✉", "Kimler Oda Sohbeti Gönderebilir", "Herkes · Yakında", enabled = false)
+                SettingsRow("♬", "Kimler Mikrofona Çıkabilir", "İzin verilenler · Yakında", enabled = false)
+                SettingsRow("◉", "Mikrofon Sayısı", "12 mikrofon", enabled = false)
+                SettingsRow("⌁", "Oda Şifresi", if (canManage) "Kapalı · Yakında" else "Yalnızca yöneticiler", enabled = false)
+                SettingsToggleRow("✦", "Süper Mikrofon", "Yakında", checked = false, enabled = false)
+            }
+            SettingsGroup {
+                SettingsRow("✿", "Oda Teması", "Atmosferi ve arka planı değiştir", enabled = true, accent = true, onClick = onTheme)
+                SettingsRow("♛", "Yöneticiler", if (canManage) "Yönetici araçları · Yakında" else "Yalnızca yöneticiler", enabled = false)
+                SettingsRow("⊘", "Engellenenler Listesi", "Yakında", enabled = false)
+                SettingsRow("↪", "Odadan Atma Geçmişi", "Yakında", enabled = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color.White.copy(.94f),
+        border = BorderStroke(1.dp, RoomLavender),
+        shadowElevation = 3.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), content = content)
+    }
+}
+
+@Composable
+private fun SettingsRow(
+    symbol: String,
+    title: String,
+    detail: String,
+    enabled: Boolean,
+    accent: Boolean = false,
+    onClick: () -> Unit = {},
+) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(38.dp).clip(CircleShape)
+                .background(if (accent) Brush.linearGradient(listOf(RoomPurple, RoomPink)) else Brush.linearGradient(listOf(RoomLavender, RoomSoftPink))),
+            contentAlignment = Alignment.Center,
+        ) { Text(symbol, color = if (accent) Color.White else RoomDeepPurple, fontWeight = FontWeight.Bold) }
+        Column(Modifier.padding(start = 11.dp).weight(1f)) {
+            Text(title, color = if (enabled) RoomInk else RoomInk.copy(.58f), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(detail, color = RoomMuted.copy(if (enabled) 1f else .65f), fontSize = 10.sp, maxLines = 1)
+        }
+        Text(if (enabled) "›" else "—", color = if (enabled) RoomPurple else RoomMuted.copy(.45f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(symbol: String, title: String, detail: String, checked: Boolean, enabled: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp).clip(CircleShape).background(RoomLavender), contentAlignment = Alignment.Center) { Text(symbol, color = RoomDeepPurple, fontWeight = FontWeight.Bold) }
+        Column(Modifier.padding(start = 11.dp).weight(1f)) {
+            Text(title, color = RoomInk.copy(if (enabled) 1f else .58f), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(detail, color = RoomMuted, fontSize = 10.sp)
+        }
+        Box(
+            Modifier.size(42.dp, 24.dp).clip(CircleShape).background(if (checked) RoomPurple else RoomLavender).padding(3.dp),
+            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+        ) { Box(Modifier.size(18.dp).clip(CircleShape).background(if (enabled) Color.White else RoomMuted.copy(.5f))) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RoomThemePanel(
+    applied: RoomThemeOption,
+    onDismiss: () -> Unit,
+    onApply: (RoomThemeOption) -> Unit,
+) {
+    var tab by remember { mutableStateOf("Galeri") }
+    var selected by remember(applied) { mutableStateOf(applied) }
+    val visibleThemes = when (tab) {
+        "Premium" -> RoomThemeOption.entries.filter { it.category == "Premium" }
+        "Özelleştir" -> RoomThemeOption.entries.take(2)
+        else -> RoomThemeOption.entries.filter { it.category == "Galeri" }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White, contentColor = RoomInk) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Oda Teması", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+            Text("Odanın atmosferini seç", color = RoomMuted)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Galeri", "Premium", "Özelleştir").forEach { item ->
+                    Surface(
+                        modifier = Modifier.weight(1f).clickable { tab = item },
+                        shape = RoundedCornerShape(15.dp),
+                        color = if (tab == item) RoomLavender else RoomSoftPink,
+                    ) { Text(item, Modifier.padding(vertical = 9.dp), color = if (tab == item) RoomPurple else RoomMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                }
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(visibleThemes, key = { it.key }) { theme ->
+                    ThemePreviewCard(theme, selected == theme) { selected = theme }
+                }
+            }
+            if (tab == "Özelleştir") Text("Renk ve dekorasyon seçenekleri yakında genişleyecek.", color = RoomMuted, fontSize = 11.sp)
+            Box(
+                Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(18.dp))
+                    .background(Brush.horizontalGradient(listOf(RoomPurple, RoomPink)))
+                    .clickable { onApply(selected) },
+                contentAlignment = Alignment.Center,
+            ) { Text("Temayı Uygula", color = Color.White, fontWeight = FontWeight.ExtraBold) }
+        }
+    }
+}
+
+@Composable
+private fun ThemePreviewCard(theme: RoomThemeOption, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.width(152.dp).height(178.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(21.dp),
+        color = Color.White,
+        border = BorderStroke(if (selected) 3.dp else 1.dp, if (selected) RoomPurple else RoomLavender),
+        shadowElevation = if (selected) 8.dp else 2.dp,
+    ) {
+        Column {
+            Box(
+                Modifier.fillMaxWidth().height(120.dp)
+                    .background(Brush.linearGradient(listOf(theme.background, theme.middle, theme.accent))),
+            ) {
+                repeat(4) { index ->
+                    Box(
+                        Modifier.size((24 + index * 3).dp).align(if (index < 2) Alignment.CenterStart else Alignment.CenterEnd)
+                            .padding(if (index % 2 == 0) 4.dp else 0.dp).clip(CircleShape)
+                            .background(Color.White.copy(.42f)),
+                    )
+                }
+                if (selected) Box(Modifier.align(Alignment.TopEnd).padding(9.dp).size(25.dp).clip(CircleShape).background(RoomPurple), contentAlignment = Alignment.Center) { Text("✓", color = Color.White, fontWeight = FontWeight.Black) }
+            }
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(theme.title, color = RoomInk, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text(theme.category, color = RoomMuted, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
 @Composable
 private fun GiftOption(symbol: String, name: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(modifier = modifier.clickable(onClick = onClick), shape = RoundedCornerShape(22.dp), color = if (selected) Color(0xFF2D2340) else Color(0xFF1B1727), border = BorderStroke(1.dp, if (selected) PremiumGold else Color(0xFF302A40))) {
+    Surface(modifier = modifier.clickable(onClick = onClick), shape = RoundedCornerShape(22.dp), color = if (selected) RoomLavender else RoomSoftPink, border = BorderStroke(1.dp, if (selected) RoomPurple else RoomLavender)) {
         Column(Modifier.padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(symbol, color = if (selected) PremiumGold else NeonViolet, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(name, color = Color(0xFFF4EFF9), fontSize = 10.sp, maxLines = 1)
+            Text(name, color = RoomInk, fontSize = 10.sp, maxLines = 1)
         }
     }
 }

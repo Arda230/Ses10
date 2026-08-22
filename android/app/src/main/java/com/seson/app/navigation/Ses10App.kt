@@ -29,8 +29,16 @@ fun Ses10App() {
         composable(Destination.Splash.route) {
             SplashScreen {
                 scope.launch {
-                    val target = if (Ses10Api.me().getOrNull() != null) Destination.Home.route else Destination.Login.route
-                    navController.navigate(target) { popUpTo(Destination.Splash.route) { inclusive = true } }
+                    val target = Ses10Api.me().fold(
+                        onSuccess = { user ->
+                            if (user != null) Destination.Home.route else Destination.Login.route
+                        },
+                        onFailure = { Destination.Login.route },
+                    )
+                    navController.navigate(target) {
+                        popUpTo(Destination.Splash.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
             }
         }
